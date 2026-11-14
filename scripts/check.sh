@@ -63,5 +63,5 @@ rm -rf target/wheels
 .venv-gate/bin/maturin build --locked --release --out target/wheels
 uv pip install --python .venv-gate --force-reinstall target/wheels/dagnam_core-*.whl
 .venv-gate/bin/pyright --pythonpath .venv-gate/bin/python
-(cd tests && ../.venv-gate/bin/python -m mypy.stubtest dagnam_core.hygiene) # stub matches the wheel
+(cd tests && ../.venv-gate/bin/python -m mypy.stubtest dagnam_core.hygiene dagnam_core._native) # stub matches the wheel
 (cd tests && ../.venv-gate/bin/python -m pytest -q .)
