@@ -1,0 +1,28 @@
+[build-system]
+requires = ["maturin>=1.13,<2"]
+build-backend = "maturin"
+
+[project]
+name = "dagnam-core"
+version = "0.1.0.dev0"
+description = "Compiled core for the Dagnam.AI libraries. Internal: import dagnam-contracts or dagnam instead."
+requires-python = ">=3.12"
+license = "Apache-2.0"
+classifiers = ["Programming Language :: Rust", "Typing :: Typed"]
+
+[tool.maturin]
+manifest-path = "crates/py/Cargo.toml"
+python-source = "python"
+module-name = "dagnam_core._native"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pyright]
+include = ["python", "tests"]
+strict = ["python", "tests"]
+pythonVersion = "3.12"
