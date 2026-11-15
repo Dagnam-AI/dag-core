@@ -11,6 +11,7 @@ mod keyword_ids;
 mod national_ids;
 mod payment_cards;
 mod registry;
+mod tables;
 
 /// A detector's finder: the byte spans of its findings.
 pub(crate) type Finder = fn(&str) -> Vec<(usize, usize)>;

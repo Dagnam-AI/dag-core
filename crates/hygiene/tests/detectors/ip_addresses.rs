@@ -153,8 +153,11 @@ fn an_ipv4_network_id_is_a_version() {
 #[test]
 fn an_ipv6_slice_is_not_an_address() {
     // At most `start::step`, all decimal; three groups or a hex letter make it an address.
-    for candidate in ["1::2", "10::20", "100::200", "1::", "3::"] {
-        assert!(!is_ip_address(candidate, " "), "{candidate}");
+    for (index, candidate) in ["1::2", "10::20", "100::200", "1::", "3::"]
+        .iter()
+        .enumerate()
+    {
+        assert!(!is_ip_address(candidate, " "), "slice {index}");
     }
     assert!(is_ip_address("1:2:3::", " "));
     assert!(is_ip_address("1::a", " "));
@@ -183,6 +186,10 @@ fn an_ipv4_address_after_a_product_or_keyword_is_a_version() {
         " x (MyApp/",
         " ;a.b+c-d_e/",
         " ;a\u{e9}/",
+        // The product's first letter is `[A-Za-z]` under `(?i)`: the dotted capital I and the
+        // dotless i read, as in the reference (checked there on `(\u{130}x/8.8.4.4`).
+        " (\u{130}x/",
+        " (\u{131}x/",
         // The dotted capital I of Turkish and the dotless i read as `i` under `(?i)`.
         " VERS\u{130}ON ",
         " bu\u{131}ld ",
