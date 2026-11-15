@@ -162,17 +162,25 @@ pub fn find_emails(text: &str) -> Vec<(usize, usize)> {
         if let Some(end) = domain {
             spans.push((head.start(), end));
         }
-        // The search resumes at the domain's end, or after the `@` when there is none.
-        position = domain.unwrap_or(head.end());
+        position = resume(domain, head.end());
     }
     spans
+}
+
+/// Where the address search resumes: at the end of the domain it just read, or after the head's
+/// `@` when there is none.
+///
+/// The `max` is a progress guard and nothing else: a search position never moves back to or
+/// before the `@` it has just passed, so no result of `domain_end` can hold the loop in place.
+fn resume(domain: Option<usize>, after_head: usize) -> usize {
+    domain.map_or(after_head, |end| end.max(after_head))
 }
 
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
 
-    use super::chain;
+    use super::{chain, resume};
 
     /// A `next` that answers `answer(position)` for at most five calls and then nothing, with
     /// the number of calls it got, so a chain that stops refusing a link cannot run on.
@@ -203,5 +211,18 @@ mod tests {
             vec![(13, 25), (26, 38), (39, 51), (52, 64), (65, 77)]
         );
         assert_eq!(calls, 6);
+    }
+
+    #[test]
+    fn the_search_resumes_at_the_domains_end_or_after_the_at() {
+        assert_eq!(resume(Some(25), 10), 25);
+        assert_eq!(resume(None, 10), 10);
+    }
+
+    #[test]
+    fn a_domain_end_that_does_not_move_on_cannot_move_the_search_back() {
+        assert_eq!(resume(Some(0), 10), 10);
+        assert_eq!(resume(Some(9), 10), 10);
+        assert_eq!(resume(Some(10), 10), 10);
     }
 }

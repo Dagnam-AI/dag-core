@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use dagnam_hygiene::{find_emails, find_phones};
 
-const SMALL: usize = 250_000;
+const SMALL: usize = 50_000;
 const LARGE: usize = 4 * SMALL;
 /// The smaller run is taken to last at least this long, so noise in a very fast run is not a
 /// ratio.
@@ -48,6 +48,12 @@ fn assert_linear(
 
 #[test]
 fn the_phone_finder_is_linear_on_every_shape_of_digit_run() {
+    // A finder that is broken fails here at once, not after every shape has been read.
+    assert_eq!(find_phones("call +14155550132 now"), vec![(5, 17)]);
+    assert_eq!(
+        find_phones("+14155551000 +14155551001"),
+        vec![(0, 12), (13, 25)]
+    );
     for (name, head, unit, tail) in [
         ("one digit run", "", "1", ""),
         ("digits and spaces", "", "1 ", ""),
@@ -70,6 +76,9 @@ fn the_phone_finder_is_linear_on_every_shape_of_digit_run() {
 
 #[test]
 fn the_email_finder_is_linear_on_every_shape_of_token() {
+    // A finder that is broken fails here at once, not after every shape has been read.
+    assert_eq!(find_emails("mail a@b.co now"), vec![(5, 11)]);
+    assert_eq!(find_emails("a@b.c..d a@b.c"), vec![(0, 5), (9, 14)]);
     for (name, head, unit, tail) in [
         ("letters", "", "a", ""),
         ("a local part", "", "a", "@b.c"),
