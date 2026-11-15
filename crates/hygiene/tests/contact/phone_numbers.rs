@@ -216,3 +216,46 @@ fn no_text_has_no_numbers() {
     assert_none(find_phones, "empty", "");
     assert_none(find_phones, "words", "no numbers in this sentence at all");
 }
+
+#[test]
+fn a_digit_of_another_script_before_a_hyphen_refuses_the_number_as_an_ascii_one_does() {
+    // The lookbehind is "digit, then a space or hyphen", digit meaning Python's `\d`.
+    assert_none(find_phones, "arabic-indic digit", "\u{664}-+14155550132");
+    assert_none(
+        find_phones,
+        "arabic-indic digit, space",
+        "\u{664} +14155550132",
+    );
+    assert_reads(find_phones, "letter", "x-+14155550132", &["+14155550132"]);
+}
+
+#[test]
+fn the_file_and_next_line_controls_are_separators_as_python_reads_them() {
+    // U+001C and U+0085 are `\s` to Python (Rust's `char::is_whitespace` has the first not).
+    for (index, (text, found)) in [
+        ("415\u{1c}555\u{85}0132", "415\u{1c}555\u{85}0132"),
+        ("4155550132\u{1c}4", "4155550132\u{1c}4"),
+        ("4155550132\u{85}4", "4155550132\u{85}4"),
+        ("415.555.0132\u{85}4", "415.555.0132\u{85}4"),
+        ("+1415555\u{1c}1000", "+1415555\u{1c}1000"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert_reads(find_phones, &format!("control {index}"), text, &[found]);
+    }
+    // They end a number like any other character that is neither a digit nor a hyphen.
+    assert_none(find_phones, "control, no digit after", "4155550132\u{1c}");
+    assert_reads(
+        find_phones,
+        "between numbers",
+        "+14155551000\u{1c}+14155551001",
+        &["+14155551000", "+14155551001"],
+    );
+    assert_reads(
+        find_phones,
+        "between numbers, next line",
+        "+14155551000\u{85} +14155551001",
+        &["+14155551000", "+14155551001"],
+    );
+}

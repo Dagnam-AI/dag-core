@@ -162,8 +162,8 @@ pub fn find_emails(text: &str) -> Vec<(usize, usize)> {
         if let Some(end) = domain {
             spans.push((head.start(), end));
         }
-        // The search resumes at the domain's end, never before the `@` it started after.
-        position = domain.map_or(head.end(), |end| end.max(head.end()));
+        // The search resumes at the domain's end, or after the `@` when there is none.
+        position = domain.unwrap_or(head.end());
     }
     spans
 }
