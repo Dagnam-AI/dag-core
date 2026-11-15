@@ -23,8 +23,9 @@ pub fn luhn_ok(digits: &str) -> bool {
         .map(|(position, c)| {
             let value = digit_value(c);
             if position % 2 == 1 {
+                // The digit sum of the doubled value: 14 is 1 + 4.
                 let doubled = value * 2;
-                if doubled > 9 { doubled - 9 } else { doubled }
+                doubled / 10 + doubled % 10
             } else {
                 value
             }
