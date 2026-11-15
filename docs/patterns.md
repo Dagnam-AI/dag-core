@@ -2,9 +2,9 @@
 
 Every `re.compile` call in the hygiene reference code, with the route that ports it to the
 `regex` crate. Reference code: `python/dagnam_contracts/hygiene/{contact,credentials,detectors,spans,near_dedup}.py`
-in `dag-contracts` (`main` at `80177e1`), read under Python 3.12 (Unicode 15.0). All paths
+in `dag-contracts` (`main` at `80177e1`), read under Python 3.13.14 (Unicode 15.1.0), the interpreter that wrote the corpus. All paths
 below are relative to that repository. Python 3 `re` on `str` is the reference; the routes are
-**1** `regex` unchanged, **2** `regex` plus a named check, **3** `fancy-regex` with a step limit.
+**1** `regex` with pattern rewrites only (no code check), **2** `regex` plus a named check, **3** `fancy-regex` with a step limit.
 
 ## Count and routes
 
@@ -16,9 +16,14 @@ No pattern is compiled in a loop or a function. Twelve are built from fragments 
 
 | route | rows |
 |---|---|
-| 1, `regex` unchanged | 11 |
+| 1, `regex`, pattern rewrites only | 11 |
 | 2, `regex` plus a check | 23 |
 | 3, `fancy-regex` | **0** |
+
+Route 1 rows need no check in code, only a rewritten spelling: P08 `\Z` to `\z`; P17 and P24 `$`
+(and P24 `\b`); P15 and P24 case-fold additions; P04, P06, P14, P33 and P34 the Python spelling
+of `\w` / `\s` (generated classes). P16 and P32 need nothing beyond the generated `\d` and the
+registry-built literal.
 
 The 34 patterns hold 58 lookarounds (24 negative lookbehind, 3 positive lookbehind, 23 negative
 lookahead, 8 positive lookahead) and 2 backreferences, counted on the compiled patterns. A
@@ -33,7 +38,8 @@ scope. `rows.py`, `pii.py`, `dedup.py` and `contamination.py` use no regex.
 
 Every route 2 entry uses one or more of these. The body is the pattern with its lookarounds
 removed; the checks look at the **full haystack** (never a slice that starts at the search
-position), one Unicode scalar at a time. A negative lookbehind at the very start passes.
+position), one Unicode scalar at a time, and test word, space and digit characters with the shared
+predicates of semantics 11 (never `char::is_alphanumeric`, `is_whitespace` or `is_numeric`). A negative lookbehind at the very start passes.
 
 - **LEAD guard** (negative lookbehind before the match). Run the body from the current position,
   take the leftmost match at `s`, test the characters before `s`. On failure restart the search
@@ -57,42 +63,15 @@ position), one Unicode scalar at a time. A negative lookbehind at the very start
 Each route 2 description was compared with the Python original on tens of thousands of random
 inputs with no difference (terminator form for every TAIL guard); the corpus remains the proof.
 
-## Semantics the port must supply
+## Semantics
 
-In this document `\d`, `\w`, `\s`, `\b` and `[a-z]` under `(?i)` always mean **Python's** meaning;
-the Rust spelling below is applied to every one of them, inside classes too.
-
-1. `\w` is `[\p{L}\p{N}_]` (letters, any number category, underscore). Not Rust's `\w` (UTS #18: alphabetic, marks, decimal digits, connector punctuation), which for
-   example adds combining marks and drops superscript digits. `\W` is its
-   complement; `[^\W_]` is `[\p{L}\p{N}]`. Checked for every code point against `re`: no difference.
-2. `\s` is `[\s\x1c-\x1f]`: Python also counts U+001C to U+001F; otherwise it equals Unicode
-   `White_Space`. Checked for every code point.
-3. `\d` is `\p{Nd}` (Arabic-Indic, fullwidth and other digits match), `\D` its complement. Where a
-   guard names ASCII text (P31) compare characters, never digit values.
-4. `\b` occurs only in P24; see there.
-5. `$` matches at the end **and before a final newline**; Rust's does not. `\Z` is `\z`. P17
-   needs `\n?\z`; P08 and P24 are safe with `\z`.
-6. `(?i)`: Python's case-insensitive match adds, to the ASCII letters, U+0130 and U+0131 for `i`,
-   U+212A for `k` and U+017F for `s` (scanned over all of Unicode up to U+2FFFF). The `regex`
-   crate's simple case folding should cover `k` and `s` (confirm); add U+0130 and U+0131 by hand wherever an `i`
-   (literal or in `[A-Za-z]`) sits under `(?i)` or `(?i:...)`. The same set applies to the
-   character tests that stand in for a lookaround in a `(?i)` pattern (P09, P11, P25). A
-   corpus case pins each of the four.
-7. Offsets: Python reports code points, `regex` bytes; convert at the binding. "One character"
-   in a restart rule is one scalar.
-8. `search(text, pos)` / `finditer(text, pos)`: the text before `pos` stays visible to lookbehind
-   (use `find_at`-style calls on the full haystack). `match(text, pos, endpos)` is anchored at
-   `pos` and the text ends at `endpos` for every lookahead and `$` (P02, P15, P16): use an
-   anchored search over `text[..endpos]`. Patterns that can match empty (P04, P06, P14) are used
-   as "the run that begins at `start`", which is always a match at `start`.
-9. Unicode tables: Python 3.12 is Unicode 15.0; a newer table in `regex` changes the answer for
-   code points assigned since. Pin it with a corpus case and record any difference as a divergence.
-10. Size: bounded repeats of `\p{Nd}` (P01, P02, P20) compile large; raise `size_limit` if the
-    default refuses them, and measure.
+How `\d`, `\w`, `\s`, `\b`, `$`, `(?i)` and offsets are spelled in Rust, the pinned reference
+interpreter and its generated tables, and the character predicates the code checks use are in
+[patterns-semantics.md](patterns-semantics.md). "Semantics N" in the entries is item N there.
 
 ## Fragments
 
-Quoted from the reference code; entries below refer to them by name.
+Quoted from the reference code; entries below refer to them by name. Where the source writes `\"` inside a raw string, the regex means `"`, and this document writes `"`.
 
 ```
 _NAMES          api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|secret(?:[_-]?access)?(?:[_-]?key)?|password|passwd|authorization|token|auth|key
@@ -184,7 +163,7 @@ P10, P12 and P13 and needs the first character of the match.
 - Lookarounds: one negative lookbehind. No tail guard: the run excludes `@`, so the body ends at the first `@` after it.
 - LEAD: the character before `s` is not `\w`, `.`, `+` or `-`. The caller searches again from the middle of a run after a domain ends at `..`, so the guard does fail in practice; every position inside a run of those characters fails it, so a failed guard may skip to the end of the run (optional, linear time).
 
-**P04 `_DOMAIN_RUN`** (`contact.py:75`, no flags). Route 1. Classes: `\w`.
+**P04 `_DOMAIN_RUN`** (`contact.py:75`, no flags). Route 1 (generated `\w`). Classes: `\w`.
 ```
 [\w.-]*
 ```
@@ -200,7 +179,7 @@ Used as the (possibly empty) run that begins at `start`.
 - LEAD: the character before `s` (the `:` of `://`) is not whitespace.
 - TAIL (fixed end: the run excludes `:`, so the first `:` after `://` ends the body): let `r` be the number of consecutive digits right after the final `:`. The guard fails exactly when `1 <= r <= 5` and the character after those digits is one of `,` `;` `|` `&` `>`. Passes at end of text. The caller uses the end of the match (after the colon). Called as `.search(text, position)`.
 
-**P06 `_PLAIN_RUN`** (`credentials.py:131`, no flags). Route 1. Classes: `\s`.
+**P06 `_PLAIN_RUN`** (`credentials.py:131`, no flags). Route 1 (generated `\s`). Classes: `\s`.
 ```
 [^\s/?#@"'`<>]*
 ```
@@ -218,13 +197,13 @@ Classes: `\d` in one lookahead.
 - The `AKIA|ASIA` alternative (fixed length 20) and the `AIza` alternative (fixed length 39): post-check that the next character is not in the class named by the lookahead. Fixed end.
 - All other alternatives: plain regex, no check.
 
-**P08 `_SHAPES[1]`, PEM block** (`credentials.py:222`, flags `(?s)`). Route 1. Classes: none.
+**P08 `_SHAPES[1]`, PEM block** (`credentials.py:222`, flags `(?s)`). Route 1 (rewrite: `\Z`). Classes: none.
 ```
 (?s)(?P<s>-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\Z))
 ```
 No lookaround. Rewrite `\Z` as `\z` (semantics 5). Lazy `.*?` has the same meaning; without an END line the match runs to the end of the text.
 
-**P09 `_SHAPES[2]`, bearer** (`credentials.py:226`, flags `(?i)`). Route 2. Classes: `\s`.
+**P09 `_SHAPES[2]`, bearer** (`credentials.py:226`, flags `(?i)`). Route 2. Classes: `\s`. The body classes `[a-z0-9._~+/-]` and `[a-z0-9]` take U+0130 and U+0131 (semantics 6).
 ```
 (?i)(?<![a-z0-9])bearer\s+(?P<s>[a-z0-9._~+/-]{19,}[a-z0-9]=*)
 ```
@@ -240,13 +219,13 @@ No lookaround. Rewrite `\Z` as `\z` (semantics 5). Lazy `.*?` has the same meani
 - LEAD: the character before the match is not `$`, and `_NAME_START` holds.
 - INNER (fixed position: right after `=` and the optional quote, which the value class excludes, so skipping the quote cannot rescue a failure): the first character of the value is not one of `/ ~ . $ % \` or a backtick, and the value does not begin with an ASCII letter, `:` and then `\` or `/`. On failure no match at `s`.
 
-**P11 `_BASIC`** (`credentials.py:234`, flags `(?i)`). Route 2. Classes: `\s`.
+**P11 `_BASIC`** (`credentials.py:234`, flags `(?i)`). Route 2. Classes: `\s`. The body class `[A-Za-z0-9+/]` and the word `basic` take U+0130 and U+0131 (semantics 6).
 ```
 (?i)(?<![a-z0-9])basic\s+(?P<s>[A-Za-z0-9+/]{4,}={0,2})(?![A-Za-z0-9+/=])
 ```
 - Lookarounds: one negative lookbehind, one negative lookahead.
 - LEAD: as P09.
-- TAIL: the next character is not in `[A-Za-z0-9+/=]` read case-insensitively (semantics 6). Terminator `(?:\z|[^A-Za-z0-9+/=])` under the same flag. Fixed end in effect (a shorter end is always followed by a class character).
+- TAIL: the next character is not in `[A-Za-z0-9+/=]` read case-insensitively (semantics 6). Terminator `(?:\z|[^A-Za-z0-9+/=\u{130}\u{131}])` under the same flag (the additions apply to the negated class too; U+212A and U+017F are folded by the crate). Fixed end in effect (a shorter end is always followed by a class character).
 
 **P12 `_QUOTED_ASSIGNMENT`** (`credentials.py:239`, no flags; `(?i:...)` scoped to the name). Route 2. Classes: `\s`.
 ```
@@ -262,24 +241,24 @@ _NAME_START(?P<n>(?i:_NAMES))["']?\s*[:=]\s*["']?
 - Lookarounds (3): those of `_NAME_START`.
 - LEAD: `_NAME_START`. Called as `.search(text, position)` and the caller uses the group `n` and the match end.
 
-**P14 `_VALUE_RUN`** (`credentials.py:250`, no flags). Route 1. Classes: `\s`.
+**P14 `_VALUE_RUN`** (`credentials.py:250`, no flags). Route 1 (generated `\s`). Classes: `\s`.
 ```
 [^\s"'`,;&]*
 ```
 
-**P15 `_NEXT_ASSIGNMENT`** (`credentials.py:251`, no flags; `(?i:...)` scoped). Route 1. Classes: `\s`.
+**P15 `_NEXT_ASSIGNMENT`** (`credentials.py:251`, no flags; `(?i:...)` scoped). Route 1 (rewrites: anchored call, case-fold additions of semantics 6 for the `i` in the names). Classes: `\s`.
 ```
 :\s*(?i:_NAMES)["']?\s*[:=]
 ```
 Called as `.match(text, colon)`: an anchored search at `colon`.
 
-**P16 `_DIGIT`** (`credentials.py:252`, no flags). Route 1. Classes: `\d`.
+**P16 `_DIGIT`** (`credentials.py:252`, no flags). Route 1 (generated `\d`). Classes: `\d`.
 ```
 \d
 ```
 Called as `.search(text, start, end)`: the text ends at `end` (semantics 8).
 
-**P17 `_MEMBER_NAME`** (`credentials.py:278`, no flags). Route 1. Classes: none (`$`, `^`).
+**P17 `_MEMBER_NAME`** (`credentials.py:278`, no flags). Route 1 (rewrite: `$`). Classes: none (`$`, `^`).
 ```
 (?:^|[^a-z0-9])(?P<n>_NAMES)$
 ```
@@ -290,7 +269,7 @@ No lookaround. `$` becomes `\n?\z` (semantics 5); the input is a lower-cased key
 (?=[^\s]*[A-Za-z])(?=[^\s]*\d)[A-Za-z0-9._~+/=-]{16,}
 ```
 - Lookarounds: two positive lookaheads, both at position 0. Only used as `.fullmatch(value)`.
-- Check: regex `\A[A-Za-z0-9._~+/=-]{16,}\z`, then the value contains an ASCII letter and an ASCII digit. (The whole value is made of class characters, so `[^\s]*` never leaves it and `\d` can only be `0-9`.)
+- Check: regex `\A[A-Za-z0-9._~+/=-]{16,}\z`, then the value contains an ASCII letter and an ASCII digit. (The whole value is made of class characters, so `[^\s]*` never leaves it and `\d` can only be `0-9`.) Compared with the original on 120,000 random values (ASCII, fullwidth and Arabic-Indic digits, spaces, newlines, combining marks): no difference.
 
 **P19 `_VOUCHED_KEY`** (`credentials.py:283`, no flags). Route 2. Classes: none.
 ```
@@ -334,11 +313,11 @@ No lookaround. `$` becomes `\n?\z` (semantics 5); the input is a lower-cased key
 - LEAD: the character before `s` is not `\w`, `:` or `.`.
 - TAIL: the next character is not `\w` and not `:`, and not `.` followed by `\w`. Terminator `(?:\z|[^\w:.]|\.(?:\z|\W))`. Use the terminator form (no counter-example to a post-check was found, none was proven impossible).
 
-**P24 `_VERSION_BEFORE`** (`detectors.py:183`, flags `(?i)`). Route 1. Classes: `\s`, `\w`, `\b`.
+**P24 `_VERSION_BEFORE`** (`detectors.py:183`, flags `(?i)`). Route 1 (rewrites: `\b`, `$`, `\w` as a generated class inside `(?-i:...)`, case-fold additions). Classes: `\s`, `\w`, `\b`.
 ```
 (?i)(?:[\s(;][A-Za-z][\w.+-]*/|\bv|\bver\.?|version|build|firmware|release)\s*$
 ```
-No lookaround. Used as `.search(before)` for truthiness only. Python's `\b` before the word character `v` means "start, or the previous character is not `\w`": write `\bv` as `(?:^|\W)v` with Python's `\W` (semantics 1), and the same for `\bver`; consuming that character is harmless for an existence test. `$` as `\z` is safe because `\s*` already takes a final newline. Case-insensitivity: semantics 6.
+No lookaround. Used as `.search(before)` for truthiness only. Python's `\b` before the word character `v` means "start, or the previous character is not `\w`": write `\bv` as `(?:^|(?-i:NW))v` with `NW` the generated `\W` class (semantics 1), and the same for `\bver`; consuming that character is harmless for an existence test. `[\w.+-]*` becomes `(?:(?-i:W)|[.+-])*` with `W` the generated `\w` class. **Every `\w` and `\W` here must sit inside `(?-i:...)`**: under `(?i)` the crate case-folds a written-out `[\p{L}\p{N}_]` and pulls in U+0345, which Python's `\w` never matches. Failing inputs without the wrapper: U+0345 followed by `v` (Python matches, Rust does not) and a space, `a`, U+0345, `/` (Python does not match, Rust does). P24 is the only pattern with `\w`, `\W` or `\b` under `(?i)` (checked on every compiled pattern; `\s` and `\d` there are unaffected, see semantics 6). `$` as `\z` is safe because `\s*` already takes a final newline. Case-insensitivity: the `i` in `version`, `build`, `firmware` and `[A-Za-z]` take the additions of semantics 6.
 
 **P25 `_DATE_OF_BIRTH`** (`detectors.py:239`, flags `(?i)`). Route 2. Classes: `\s`, `\d` throughout.
 ```
@@ -403,23 +382,23 @@ One alternative per entry of `_EU_VAT_FORMATS`, in that order (see Fragments).
 
 ## spans.py and near_dedup.py
 
-**P32 `PLACEHOLDER`** (`spans.py:46`, no flags). Route 1. Classes: none.
+**P32 `PLACEHOLDER`** (`spans.py:46`, no flags). Route 1 (built from the registry). Classes: none.
 ```
 \[REDACTED:PII_[A-Z0-9_]+\]|<SECRET>
 ```
 Built at import: `re.escape` of the redaction template `[REDACTED:{code}]` with the escaped `{code}` replaced by `PII_[A-Z0-9_]+`, joined with `|` to the escaped placeholder of every detector that has one (today only `<SECRET>`). Build it from the detector table in Rust with `regex::escape`; do not paste the literal.
 
-**P33 `_CAN_HOLD_A_FINDING`** (`spans.py:71`, no flags). Route 1. Classes: `\W` inside a class.
+**P33 `_CAN_HOLD_A_FINDING`** (`spans.py:71`, no flags). Route 1 (generated class). Classes: `\W` inside a class.
 ```
 [^\W_]|@
 ```
-Used as a boolean `.search`. Spelled `[\p{L}\p{N}]|@` (semantics 1).
+Used as a boolean `.search`. Spelled as the generated word class without `_`, plus `@` (semantics 1; in set terms `[\p{L}\p{N}]|@`, but never the crate's own `\p{L}`).
 
-**P34 `_PUNCTUATION`** (`near_dedup.py:63`, flags `re.UNICODE`, which is the default for `str`). Route 1. Classes: `\w`, `\s`. Not ported: stays in Python.
+**P34 `_PUNCTUATION`** (`near_dedup.py:63`, flags `re.UNICODE`, which is the default for `str`). Route 1 (generated classes). Classes: `\w`, `\s`. Not ported: stays in Python.
 ```
 [^\w\s]
 ```
-If it is ever ported: `[^\p{L}\p{N}_\s\x1c-\x1f]`.
+If it is ever ported: the complement of the generated word and space classes (semantics 1 and 2).
 
 ## Calls with a literal pattern, outside the 34
 
@@ -429,7 +408,7 @@ Python compiles these on first use. None is a route problem; the port must cover
 |---|---|---|---|
 | `contact.py:29` | `sub` | `\D` | remove non-digits (`\D` is not `\p{Nd}`) |
 | `contact.py:33` | `search` | `[\s.()-]` | `\s` per semantics 2 |
-| `credentials.py:322` | `sub` | `(?<=[a-z0-9])(?=[A-Z])` | `_snake`: insert `_` between `[a-z0-9]` and `[A-Z]`; two lookarounds, no regex needed (a loop over characters) |
+| `credentials.py:322` | `sub` | `(?<=[a-z0-9])(?=[A-Z])` | `_snake`: insert `_` between `[a-z0-9]` and `[A-Z]`; two lookarounds, no regex needed (a loop over characters); its `.lower()` is Python's full Unicode lower-casing (U+0130 becomes two characters), not an ASCII loop (semantics 12) |
 | `credentials.py:381` | `split`, `maxsplit=1` | `[^a-z0-9]+` | the text before the first character outside `[a-z0-9]` |
 | `detectors.py:80` | `sub` | `[ -]` | remove spaces and hyphens |
 | `detectors.py:97` | `sub` | `\D` | as above |
