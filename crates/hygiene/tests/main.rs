@@ -277,3 +277,37 @@ fn a_repeated_shingle_does_not_move_the_signature() {
     let twice = dagnam_hygiene::minhash_signature(["a b c", "b c d", "a b c"]);
     assert_eq!(once, twice);
 }
+
+#[test]
+fn the_loader_reads_a_threshold_to_the_nearest_f64() {
+    // Without serde_json's `float_roundtrip` the parser can land one ulp away on a value like this.
+    let json =
+        r#"{"texts": [], "threshold": 0.9140625000000001, "duplicate_indices": [], "pairs": []}"#;
+    let case: NearDedupCase = serde_json::from_str(json).unwrap();
+    assert_eq!(
+        case.threshold.to_bits(),
+        0.914_062_500_000_000_1_f64.to_bits()
+    );
+    assert_ne!(case.threshold.to_bits(), 0.914_062_5_f64.to_bits());
+}
+
+#[test]
+fn a_long_chain_of_overlapping_texts_is_one_cluster() {
+    // Text i holds words i..i+40 of one sequence: neighbours share most shingles, far ones none,
+    // so the cluster only exists through a chain of pairs (0.8 leaves the estimate's noise room).
+    let words: Vec<String> = (0..240).map(|i| format!("w{i}")).collect();
+    let owned: Vec<String> = (0..200).map(|i| words[i..i + 40].join(" ")).collect();
+    let texts: Vec<&str> = owned.iter().map(String::as_str).collect();
+    let (duplicates, pairs) = dagnam_hygiene::near_duplicates(&texts, 0.8).unwrap();
+    assert_eq!(duplicates, (1..200).collect::<Vec<_>>());
+    // Each later text is joined to an earlier one by a reported pair.
+    assert!((1..200).all(|i| pairs.iter().any(|&(_, high, _)| high == i)));
+}
+
+#[test]
+fn a_tab_is_not_a_word_separator_because_the_input_is_already_normalised() {
+    // The reference's `split()` would read both texts as `a b c`; here only U+0020 separates
+    // words, so the tab stays inside a word. Callers must pass normalised text.
+    let (duplicates, pairs) = dagnam_hygiene::near_duplicates(&["a\tb c", "a b c"], 0.9).unwrap();
+    assert!(duplicates.is_empty() && pairs.is_empty());
+}
