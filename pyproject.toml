@@ -23,6 +23,6 @@ target-version = "py312"
 select = ["E", "F", "I", "B", "UP"]
 
 [tool.pyright]
-include = ["python", "tests"]
-strict = ["python", "tests"]
+include = ["python", "tests", "scripts"]
+strict = ["python", "tests", "scripts"]
 pythonVersion = "3.12"

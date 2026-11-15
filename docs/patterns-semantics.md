@@ -8,17 +8,36 @@ means item N below). In both files `\d`, `\w`, `\s`, `\b` and `[a-z]` under `(?i
 
 The reference is **Python 3.13.14, Unicode 15.1.0**: the interpreter that wrote the corpus. The
 port does **not** use the `regex` crate's built-in `\w`, `\s`, `\d`, `\b` or its case-folding for
-the cases below; it supplies its own tables, **generated from the reference interpreter's
-`unicodedata`** by a checked-in generator script (to be written; this section is its
-specification). The generator emits, as Rust source, sorted code point ranges for:
+the cases below; it supplies its own tables, **generated from the reference interpreter** by the
+checked-in script `scripts/gen_py_classes.py`. The script computes each class with `re.fullmatch`
+over every code point (surrogates skipped), checks every code point against the definition in
+items 1 to 3 (`str.isalnum()` or `_`, `str.isspace()`, category `Nd`), refuses any interpreter whose
+Unicode database is not 15.1.0, and writes `crates/hygiene/data/py_classes.txt`: one `[word]`,
+`[space]` and `[digit]` section of inclusive hex ranges (`lo-hi`, lowercase, many to a line, so
+the 500-line cap holds). `scripts/gen_py_classes.py --check` (run with the pinned interpreter; the
+gate's venv is 3.12 and the script refuses it) fails when the file is not what the interpreter
+writes. The tables are regenerated when the pinned interpreter moves.
 
-- the word set (the `\w` of item 1), the space set (item 2) and the digit set (item 3), with the
-  class spellings the patterns need (`\w`, `\W`, `[^\W_]`, `\s`, `\S`, `\d`, `\D`) and the three
-  predicates of item 11;
-- the case-fold additions of item 6.
+The file is parsed by the compiler (`crates/hygiene/src/table.rs`, a `const fn` run in a `static`
+initialiser): a malformed table (missing, empty or repeated section, a token that is not
+`lo-hi`, an unsorted or overlapping range, a surrogate) is a **build error** on every platform,
+never an empty class at run time. It reads LF and CRLF alike, and `.gitattributes` pins the file
+to LF.
 
-It runs under the pinned interpreter and checks every code point against that interpreter's `re`
-before it writes anything. The tables are regenerated when the pinned interpreter moves.
+`crates/hygiene/src/text.rs` builds everything from those ranges:
+
+- the predicates of item 11, named `is_py_word`, `is_py_space` and `is_py_digit`;
+- the class spellings `WORD_CLASS`, `SPACE_CLASS` and `DIGIT_CLASS`, `LazyLock<String>` statics
+  (formatted from the compile-time table on first use) of the form `[\u{30}-\u{39}...]`, bracketed classes of
+  explicit ranges; and `case_sensitive(class)`, which wraps one in `(?-i:...)`.
+
+Bracket-body spellings, as valid nested `regex` syntax (W is a class above, with its brackets):
+`\W` is `[^W]`; `[^\W_]` (letters and numbers, no underscore) is `[W&&[^_]]`; a class of W and
+other members, such as Python's `[\w.+-]`, is a union `[W.+-]` outside `(?i)` and the
+alternation `(?:(?-i:W)|[.+-])` under it. The `(?-i:...)` wrapper goes round a whole standalone
+class, never inside a bracket class, where it is not a group.
+
+The case-fold additions of item 6 are not part of the table.
 
 Why not the crate: measured against the crate's tables (`regex` 1.13.1, `regex-syntax` 0.8.11,
 Unicode 16), 4,382 code points differ in `\w` and 80 in `\d` from Python 3.13; 5,004 and 80 from
@@ -90,6 +109,11 @@ from them, the two backends differ on those code points. That is a documented di
 10. Size: bounded repeats of `\p{Nd}` (P01, P02, P20) compile under the default size limit in
     `regex` 1.13.1 (measured with the crate's own `\p{Nd}`); the generated digit class is of the
     same size, so re-measure once with it and raise `size_limit` only if it is refused.
+    A repetition of the **word** class is a different matter: a hypothetical
+    `[W.-]{1,64}@[W.-]{1,255}` needs about 14.8 MB and is refused by the 10 MiB default
+    `size_limit` (measured in the review of the table). Later tasks must not repeat the full word
+    class a bounded number of times: use a single linear scan, or a smaller class, or measure the
+    compiled pattern first.
 11. **Character tests in code** (the LEAD, TAIL and INNER checks, and anything else that asks "is
     this a word, space or digit") use one shared set of three predicates, built from the same
     generated tables as the class spellings, so the regex and the checks cannot disagree:
