@@ -10,6 +10,7 @@ use std::sync::LazyLock;
 use regex::{Captures, Regex};
 
 use crate::contact::{find_emails, find_phones};
+use crate::credentials::find_secrets;
 use crate::text::is_py_digit;
 
 mod cards;
@@ -64,6 +65,11 @@ pub static DETECTORS: &[Detector] = &[
         code: "PII_NATIONAL_ID",
         loose: false,
         find: find_national_ids,
+    },
+    Detector {
+        code: "PII_SECRET",
+        loose: false,
+        find: find_secrets,
     },
     Detector {
         code: "PII_IBAN",
