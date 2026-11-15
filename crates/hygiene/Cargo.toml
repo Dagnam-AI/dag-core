@@ -12,8 +12,9 @@ workspace = true
 
 [dependencies]
 blake2 = "0.11.0"
+# Only what the detector patterns need: Unicode case folding for `(?i)` and the fast paths.
+regex = { version = "1.13.1", default-features = false, features = ["std", "perf", "unicode-case"] }
 
 [dev-dependencies]
-regex = "1.13.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["float_roundtrip"] }

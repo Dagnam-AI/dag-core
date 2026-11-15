@@ -2,11 +2,17 @@
 #![forbid(unsafe_code)]
 
 mod cluster;
+mod detectors;
 mod minhash;
 mod table;
 mod text;
 
 pub use cluster::{BANDS, Pair, SHINGLE_SIZE, near_duplicates};
+pub use detectors::{
+    DETECTORS, Detector, find_ca_sins, find_dates_of_birth, find_eu_vat, find_ibans,
+    find_in_aadhaar, find_in_pans, find_ip_addresses, find_national_ids, find_payment_cards,
+    find_uk_ninos, iban_mod97_ok, is_ip_address, luhn_ok, verhoeff_ok,
+};
 pub use minhash::{NUM_PERMUTATIONS, minhash_signature};
 pub use text::{
     DIGIT_CLASS, SPACE_CLASS, WORD_CLASS, case_sensitive, char_at, char_before, is_py_digit,
