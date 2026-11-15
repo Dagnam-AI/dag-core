@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
+mod contact;
 mod detectors;
 mod guard;
 mod text;

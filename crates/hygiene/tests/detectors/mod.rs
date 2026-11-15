@@ -2,7 +2,7 @@
 //! checksums, the registry, and the corpus.
 //!
 //! Failure messages carry case names and offsets, never the text under test.
-mod corpus;
+pub(crate) mod corpus;
 mod dates_of_birth;
 mod eu_vat;
 mod ibans;

@@ -9,6 +9,7 @@ use std::sync::LazyLock;
 
 use regex::{Captures, Regex};
 
+use crate::contact::{find_emails, find_phones};
 use crate::text::is_py_digit;
 
 mod cards;
@@ -44,6 +45,16 @@ pub struct Detector {
 /// Every class with a finder in this module, in the reference's registry order: the order is part
 /// of the ranking when two findings tie.
 pub static DETECTORS: &[Detector] = &[
+    Detector {
+        code: "PII_EMAIL",
+        loose: false,
+        find: find_emails,
+    },
+    Detector {
+        code: "PII_PHONE",
+        loose: true,
+        find: find_phones,
+    },
     Detector {
         code: "PII_PAYMENT_CARD",
         loose: false,
