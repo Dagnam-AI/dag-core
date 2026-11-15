@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
+mod detectors;
 mod text;
 
 /// The cases `corpus/minhash.jsonl` holds. Move with `corpus/README.md` on every re-export.

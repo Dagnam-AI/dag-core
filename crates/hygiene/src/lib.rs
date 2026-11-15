@@ -2,11 +2,13 @@
 #![forbid(unsafe_code)]
 
 mod cluster;
+mod detectors;
 mod minhash;
 mod table;
 mod text;
 
 pub use cluster::{BANDS, Pair, SHINGLE_SIZE, near_duplicates};
+pub use detectors::{find_ibans, find_payment_cards, iban_mod97_ok, luhn_ok};
 pub use minhash::{NUM_PERMUTATIONS, minhash_signature};
 pub use text::{
     DIGIT_CLASS, SPACE_CLASS, WORD_CLASS, case_sensitive, char_at, char_before, is_py_digit,
