@@ -4,7 +4,9 @@ use dagnam_hygiene::DETECTORS;
 use super::fill;
 
 /// What each class finds in a text made for it, as `(code, template, value)`.
-const SAMPLES: [(&str, &str, &str); 10] = [
+const SAMPLES: [(&str, &str, &str); 12] = [
+    ("PII_EMAIL", "mail {}.", "jane@example.com"),
+    ("PII_PHONE", "call {}.", "+1 415-555-0132"),
     ("PII_PAYMENT_CARD", "card {}.", "4111 1111 1111 1111"),
     ("PII_NATIONAL_ID", "ssn {}.", "078-05-1120"),
     ("PII_IBAN", "iban {}.", "NL91ABNA0417164300"),
@@ -20,11 +22,12 @@ const SAMPLES: [(&str, &str, &str); 10] = [
 #[test]
 fn the_registry_holds_these_classes_in_the_references_relative_order() {
     let codes: Vec<&str> = DETECTORS.iter().map(|d| d.code).collect();
-    // The reference's order, less the contact and credential classes that are added with
-    // their finders.
+    // The reference's order, less the credential class that is added with its finder.
     assert_eq!(
         codes,
         [
+            "PII_EMAIL",
+            "PII_PHONE",
             "PII_PAYMENT_CARD",
             "PII_NATIONAL_ID",
             "PII_IBAN",
@@ -40,8 +43,13 @@ fn the_registry_holds_these_classes_in_the_references_relative_order() {
 }
 
 #[test]
-fn none_of_these_classes_is_loose() {
-    assert!(DETECTORS.iter().all(|d| !d.loose));
+fn only_the_phone_class_is_loose() {
+    let loose: Vec<&str> = DETECTORS
+        .iter()
+        .filter(|d| d.loose)
+        .map(|d| d.code)
+        .collect();
+    assert_eq!(loose, ["PII_PHONE"]);
 }
 
 #[test]
@@ -56,8 +64,20 @@ fn each_entry_finds_exactly_the_sample_of_its_own_class_and_no_other() {
     for (detector, (code, text, span)) in DETECTORS.iter().zip(&samples) {
         assert_eq!(detector.code, *code);
         assert_eq!((detector.find)(text), vec![*span], "{code}");
-        for (other, text, _) in samples.iter().filter(|sample| sample.0 != *code) {
+        // A loose class reads other classes' samples as digits (an Aadhaar number is a phone
+        // number to the phone pattern): a stricter class names that text.
+        for (other, text, _) in samples
+            .iter()
+            .filter(|sample| sample.0 != *code && !detector.loose)
+        {
             assert!((detector.find)(text).is_empty(), "{code} on {other}");
         }
     }
+}
+
+#[test]
+fn the_loose_phone_class_also_reads_the_digits_of_a_stricter_class() {
+    let (text, span) = fill("uid {}.", "2345 6789 0124");
+    let phone = DETECTORS.iter().find(|d| d.code == "PII_PHONE").unwrap();
+    assert_eq!((phone.find)(&text), vec![span]);
 }
