@@ -13,7 +13,11 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 mod detectors;
+mod guard;
 mod text;
+
+#[global_allocator]
+static ALLOCATOR: guard::Capped = guard::Capped;
 
 /// The cases `corpus/minhash.jsonl` holds. Move with `corpus/README.md` on every re-export.
 const MINHASH_CASES: usize = 739;
