@@ -31,7 +31,7 @@ U+001F.
 The package's `requires-python` is `>=3.12`, so the Python backend itself answers with whatever
 interpreter runs it. The core is pinned to the reference tables; where an interpreter differs
 from them, the two backends differ on those code points. That is a documented divergence (see
-`divergences.md`, "interpreter Unicode version"), not a bug.
+`divergences.md`, the row for a code point whose `\w` or `\d` status differs between interpreters), not a bug.
 
 ## Items
 
@@ -57,19 +57,19 @@ from them, the two backends differ on those code points. That is a documented di
    and 3.13). The `regex` crate already folds `k` with U+212A and `s` with U+017F; it does **not**
    match U+0130 or U+0131 for `i` (confirmed with `regex` 1.13.1). Add U+0130 and U+0131 by hand
    wherever an `i` (a literal, or inside `[A-Za-z]`, `[a-z0-9]` and similar) sits under `(?i)` or
-   `(?i:...)`: P09, P11, P12, P13, P15, P24, P25, P27, P28, in body classes as well as guards. The
+   `(?i:...)`: P09, P11, P12, P13, P15, P24, P25, P27, in body classes as well as guards. The
    addition applies to **negated** classes too: P11's terminator is `[^A-Za-z0-9+/=\u{130}\u{131}]`, so
    those two do not end the match. The same set applies to the code checks
    that stand in for a lookaround in a `(?i)` pattern (P09, P11, P25: ASCII letters and digits,
    U+0130, U+0131, U+017F, U+212A). A corpus case pins each of the four.
    **`\w` and `\W` under `(?i)`** (P24 is the only pattern that has them; checked on every
    compiled pattern): Python's `\w` ignores the flag, the crate's case-folds a written-out
-   `[\p{L}\p{N}_]` and pulls U+0345 in (it folds to a letter). Spell every `\w`, `\W` and
+   `[\p{L}\p{N}_]` and pulls in code points whose case-fold partner is a letter (for example U+0345, and U+A7CB and U+A7DC from the crate's Unicode 16 tables). Spell every `\w`, `\W` and
    `[\w...]` in P24 as the generated class wrapped in `(?-i:...)`; a class that mixes `\w` with
    other members becomes an alternation (`(?:(?-i:W)|[.+-])`). Inputs that fail otherwise:
    `U+0345` then `v` (Python: boundary before `v`, so P24 matches; unwrapped Rust: no match) and
    a space, `a`, `U+0345`, `/` (Python: no match, since U+0345 is not `\w`; unwrapped Rust:
-   match). `\s` and `\d` under `(?i)` (P09, P11, P25, P27, P28) are unaffected: no `White_Space`
+   match). `\s` and `\d` under `(?i)` (P09, P11, P24, P25, P27, P28) are unaffected: no `White_Space`
    or `Nd` code point has a case mapping (checked on 3.13 and 3.14).
 7. Offsets: Python reports code points, `regex` bytes; convert at the binding. "One character"
    in a restart rule is one scalar. **Lone surrogates:** a Python `str` may hold U+D800 to U+DFFF,
