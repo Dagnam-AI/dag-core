@@ -80,7 +80,8 @@ def render() -> str:
 def main(argv: list[str]) -> int:
     text = render()
     if argv == ["--check"]:
-        if TARGET.read_text(encoding="utf-8") != text:
+        # Bytes, not text: `read_text` would translate a CRLF checkout into the expected file.
+        if TARGET.read_bytes() != text.encode("utf-8"):
             print(f"{TARGET} is not what this interpreter writes", file=sys.stderr)
             return 1
         return 0

@@ -138,7 +138,7 @@ fn every_class_spelling_compiles_and_matches_exactly_the_members() {
             .flat_map(|m| m.as_str().chars())
             .collect();
         let expected: Vec<char> = all.chars().filter(|&c| predicate(c)).collect();
-        assert_eq!(matched, expected, "{name}");
+        assert_same_chars(&matched, &expected, name);
         let negated = regex::Regex::new(&format!("[^{class}]")).unwrap();
         let outside: usize = negated
             .find_iter(&all)
@@ -157,6 +157,22 @@ fn every_class_spelling_compiles_and_matches_exactly_the_members() {
 }
 
 #[test]
+fn the_word_class_without_the_underscore_is_an_intersection_with_a_negated_class() {
+    // `[^\W_]` in the documented spelling: the word class intersected with "not an underscore".
+    let regex = regex::Regex::new(&format!("[{}&&[^_]]", WORD_CLASS.as_str())).unwrap();
+    let all = every_char();
+    let found: Vec<char> = regex
+        .find_iter(&all)
+        .flat_map(|m| m.as_str().chars())
+        .collect();
+    let words: Vec<char> = all
+        .chars()
+        .filter(|&c| dagnam_hygiene::is_py_word(c) && c != '_')
+        .collect();
+    assert_same_chars(&found, &words, "word class without underscore");
+}
+
+#[test]
 fn the_case_sensitive_spelling_does_not_fold_under_case_insensitive_matching() {
     // U+0345 folds to a Greek letter, so under `(?i)` the bare class matches it; the
     // `(?-i:...)` form is Python's `\w`, which ignores the flag.
@@ -169,13 +185,40 @@ fn the_case_sensitive_spelling_does_not_fold_under_case_insensitive_matching() {
         .find_iter(&all)
         .flat_map(|m| m.as_str().chars())
         .collect();
-    assert_eq!(
-        found,
-        all.chars()
-            .filter(|&c| dagnam_hygiene::is_py_word(c))
-            .collect::<Vec<_>>()
-    );
+    let words: Vec<char> = all
+        .chars()
+        .filter(|&c| dagnam_hygiene::is_py_word(c))
+        .collect();
+    assert_same_chars(&found, &words, "wrapped word class");
     assert_eq!(case_sensitive("[a]"), "(?-i:[a])");
+}
+
+#[test]
+fn a_word_class_beside_other_members_is_an_alternation_of_wrapped_and_bare_classes() {
+    // The spelling for a Python `[\w.+-]` under `(?i)`: the wrapper goes round the whole
+    // standalone class, never inside a bracket class.
+    let pattern = format!("(?i)^(?:{}|[.+-])$", case_sensitive(&WORD_CLASS));
+    let regex = regex::Regex::new(&pattern).unwrap();
+    for member in ["a", "K", "_", "7", "\u{b2}", ".", "+", "-"] {
+        assert!(regex.is_match(member), "{member:?}");
+    }
+    for other in ["\u{345}", "/", " ", "", "ab", "\u{1f}"] {
+        assert!(!regex.is_match(other), "{other:?}");
+    }
+}
+
+/// Fails with the counts and the first differing code point, never the lists (which hold up
+/// to 138,000 characters).
+fn assert_same_chars(got: &[char], want: &[char], what: &str) {
+    let first = got.iter().zip(want).position(|(a, b)| a != b);
+    assert!(
+        got.len() == want.len() && first.is_none(),
+        "{what}: {} characters, {} expected; first difference at index {first:?}: {:?} against {:?}",
+        got.len(),
+        want.len(),
+        first.and_then(|at| got.get(at)).map(|&c| u32::from(c)),
+        first.and_then(|at| want.get(at)).map(|&c| u32::from(c)),
+    );
 }
 
 #[test]
@@ -198,8 +241,50 @@ fn an_offset_inside_a_character_counts_it_and_one_past_the_end_counts_them_all()
 }
 
 #[test]
-fn an_offset_that_goes_backwards_repeats_the_one_before_it_and_never_panics() {
-    assert_eq!(to_char_offsets("abcd", &[3, 1, 4]), [3, 3, 4]);
+fn offsets_in_any_order_get_their_own_answers_in_the_order_given() {
+    // The ends of overlapping spans, flattened: not ascending.
+    assert_eq!(
+        to_char_offsets("abcdefghijkl", &[0, 10, 2, 5]),
+        [0, 10, 2, 5]
+    );
+    assert_eq!(to_char_offsets("abcd", &[3, 1, 4]), [3, 1, 4]);
+    assert_eq!(to_char_offsets("abcd", &[4, 3, 2, 1, 0]), [4, 3, 2, 1, 0]);
+    assert_eq!(
+        to_char_offsets("abcd", &[2, 0, 2, 4, 0, 2]),
+        [2, 0, 2, 4, 0, 2]
+    );
+    // Multi-byte characters, shuffled; 1 and 6 are inside characters, 99 is past the end.
+    let text = "a\u{e9}\u{1d4b3}z";
+    assert_eq!(
+        to_char_offsets(text, &[8, 3, 99, 0, 7, 1, 6]),
+        [4, 2, 4, 0, 3, 1, 3]
+    );
+    assert_eq!(to_char_offsets(text, &[2, 5]), [2, 3]);
+    assert_eq!(to_char_offsets("", &[5, 0, 3]), [0, 0, 0]);
+}
+
+#[test]
+fn an_offset_answers_the_same_alone_as_among_others_in_any_order() {
+    for case in cases::<FindingsCase>("findings") {
+        let mut bytes: Vec<usize> = case.text.char_indices().map(|(at, _)| at).collect();
+        bytes.push(case.text.len());
+        let alone: Vec<usize> = bytes
+            .iter()
+            .map(|&at| to_char_offsets(&case.text, &[at])[0])
+            .collect();
+        // Ascending, descending, and a stride that interleaves the two ends.
+        let descending: Vec<usize> = bytes.iter().rev().copied().collect();
+        let stride: Vec<usize> = (0..bytes.len())
+            .map(|i| bytes[(i * 7 + 3) % bytes.len()])
+            .collect();
+        for order in [bytes.clone(), descending, stride] {
+            let expected: Vec<usize> = order
+                .iter()
+                .map(|&at| alone[bytes.binary_search(&at).unwrap()])
+                .collect();
+            assert_eq!(to_char_offsets(&case.text, &order), expected);
+        }
+    }
 }
 
 #[test]
@@ -217,6 +302,11 @@ fn the_character_before_and_at_an_offset_need_a_boundary() {
     assert_eq!(char_before("a\u{e9}", 3), Some('\u{e9}'));
     assert_eq!(char_before("a\u{e9}", 1), Some('a'));
     assert_eq!(char_before("\u{1d4b3}z", 4), Some('\u{1d4b3}'));
+    // Inside a character is `None` too, not the character around it.
+    assert_eq!(char_before("\u{660}x", 1), None);
+    assert_eq!(char_at("\u{660}x", 1), None);
+    assert_eq!(char_before("\u{660}x", 2), Some('\u{660}'));
+    assert_eq!(char_at("\u{660}x", 2), Some('x'));
     assert_eq!(char_before("a\u{e9}", 0), None);
     assert_eq!(char_before("a\u{e9}", 2), None);
     assert_eq!(char_before("a\u{e9}", 4), None);

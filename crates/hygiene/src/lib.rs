@@ -3,6 +3,7 @@
 
 mod cluster;
 mod minhash;
+mod table;
 mod text;
 
 pub use cluster::{BANDS, Pair, SHINGLE_SIZE, near_duplicates};
