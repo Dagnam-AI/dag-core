@@ -12,10 +12,14 @@ use regex::{Captures, Regex};
 use crate::text::is_py_digit;
 
 mod cards;
+mod dates;
 mod iban;
+mod ip;
 
 pub use cards::{find_payment_cards, luhn_ok};
+pub use dates::find_dates_of_birth;
 pub use iban::{find_ibans, iban_mod97_ok};
+pub use ip::{find_ip_addresses, is_ip_address};
 
 /// Compiles a detector pattern.
 ///

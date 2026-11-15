@@ -2,7 +2,9 @@
 //! checksums, the registry, and the corpus.
 //!
 //! Failure messages carry case names and offsets, never the text under test.
+mod dates_of_birth;
 mod ibans;
+mod ip_addresses;
 mod payment_cards;
 
 /// A detector's finder: the byte spans of its findings.
