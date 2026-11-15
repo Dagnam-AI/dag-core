@@ -7,7 +7,7 @@ use super::{assert_finds, assert_misses};
 const VALID: [&str; 3] = ["4111111111111111", "378282246310005", "5555555555554444"];
 
 /// `prefix` followed by the check digit that makes it Luhn-valid, from the arithmetic.
-fn complete(prefix: &str) -> String {
+pub(crate) fn complete(prefix: &str) -> String {
     let sum: u32 = prefix
         .chars()
         .rev()
@@ -26,8 +26,8 @@ fn complete(prefix: &str) -> String {
 
 #[test]
 fn luhn_accepts_a_valid_number_and_refuses_it_with_one_digit_changed() {
-    for valid in VALID {
-        assert!(luhn_ok(valid), "{valid} as given");
+    for (index, valid) in VALID.iter().enumerate() {
+        assert!(luhn_ok(valid), "valid number {index}");
         let mut digits: Vec<char> = valid.chars().collect();
         let last = digits.len() - 1;
         digits[last] = if digits[last] == '9' { '0' } else { '9' };

@@ -21,6 +21,7 @@ static SSN: Pattern = LazyLock::new(|| {
 #[must_use]
 pub fn find_national_ids(text: &str) -> Vec<(usize, usize)> {
     scan(&SSN, text, |start, caps| {
+        // `extract` cannot panic: the pattern is three groups, each one taking part in every match.
         let (matched, [area, group, serial]) = caps.extract();
         let end = start + matched.len();
         let issued = !matches!(area, "000" | "666")
@@ -66,7 +67,7 @@ static CA_SIN: Pattern = LazyLock::new(|| {
     let (d, s) = (DIGIT_CLASS.as_str(), SPACE_CLASS.as_str());
     let i = r"[i\u{130}\u{131}]";
     compile(&format!(
-        "(?:SIN|NAS|(?i:soc{i}al{s}+{i}nsurance|num[\u{e9}\u{c9}]ro{s}+d['\u{2019}]assurance{s}+soc{i}ale))\
+        "(?:SIN|NAS|(?i:soc{i}al{s}+{i}nsurance|num[\u{e9}e]ro{s}+d['\u{2019}]assurance{s}+soc{i}ale))\
          (?:{s}+(?i:number|no\\.?|#))?{s}*(?:[:#]{s}*)?\
          ([1-79]{d}{{2}}(?:{d}{{3}}{d}{{3}}| {d}{{3}} {d}{{3}}|-{d}{{3}}-{d}{{3}}))"
     ))

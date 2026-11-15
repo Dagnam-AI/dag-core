@@ -1,6 +1,7 @@
 //! `find_ca_sins`, `find_in_aadhaar` and the checksums `verhoeff_ok` beside `luhn_ok`.
 use dagnam_hygiene::{find_ca_sins, find_in_aadhaar, luhn_ok, verhoeff_ok};
 
+use super::payment_cards::complete;
 use super::{assert_finds, assert_misses};
 
 #[test]
@@ -42,6 +43,39 @@ fn a_sin_is_found_exactly() {
     {
         assert_finds(find_ca_sins, &format!("positive {index}"), template, value);
     }
+}
+
+/// The French name is read with or without its accents, in either case: the reference's
+/// `num[ée]ro` under `(?i)` is `e`, `é`, `E` and `É` (a port that kept only `é` and `É` lost
+/// the plain `e` of every unaccented text).
+#[test]
+fn the_french_name_is_read_with_and_without_accents_in_either_case() {
+    let number = complete("13069254");
+    for (index, template) in [
+        "numero d'assurance sociale: {}",
+        "NUMERO D'ASSURANCE SOCIALE {}",
+        "Numero D\u{2019}Assurance Sociale#{}",
+        "num\u{e9}ro d'assurance sociale {}",
+        "NUM\u{c9}RO D'ASSURANCE SOCIALE: {}",
+        "num\u{c9}ro d'assurance sociale {}",
+        "NUM\u{e9}RO D'ASSURANCE SOCIALE {}",
+        "numEro d'assurance sociale {}",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert_finds(
+            find_ca_sins,
+            &format!("spelling {index}"),
+            template,
+            &number,
+        );
+    }
+    assert_misses(
+        find_ca_sins,
+        "other vowel",
+        "numaro d'assurance sociale 130692544",
+    );
 }
 
 #[test]
