@@ -188,3 +188,126 @@ fn every_finding_class_keeps_at_least_the_findings_it_has_now() {
         );
     }
 }
+
+#[test]
+fn minhash_signatures_are_bit_identical_to_the_reference() {
+    for case in cases::<MinhashCase>("minhash") {
+        let got = dagnam_hygiene::minhash_signature(case.shingles.iter().map(String::as_str));
+        let got: Vec<String> = got.iter().map(u64::to_string).collect();
+        assert_eq!(got, case.signature, "shingles {:?}", case.shingles);
+    }
+}
+
+#[test]
+fn an_empty_shingle_set_signs_as_all_ones() {
+    let signature = dagnam_hygiene::minhash_signature([]);
+    assert_eq!(signature.len(), dagnam_hygiene::NUM_PERMUTATIONS);
+    assert!(signature.iter().all(|v| *v == u64::MAX));
+}
+
+#[test]
+fn clustering_matches_the_reference() {
+    for case in cases::<NearDedupCase>("near_dedup") {
+        let texts: Vec<&str> = case.texts.iter().map(String::as_str).collect();
+        let (duplicates, pairs) = dagnam_hygiene::near_duplicates(&texts, case.threshold).unwrap();
+        assert_eq!(duplicates, case.duplicate_indices, "{:?}", case.texts);
+        assert_eq!(pairs, case.pairs, "{:?}", case.texts);
+    }
+}
+
+#[test]
+fn a_threshold_outside_the_half_open_unit_interval_is_refused() {
+    for bad in [
+        0.0,
+        -0.1,
+        1.000_001,
+        f64::NAN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    ] {
+        assert!(dagnam_hygiene::near_duplicates(&["a b c"], bad).is_none());
+        assert!(dagnam_hygiene::near_duplicates(&[], bad).is_none());
+    }
+    for good in [f64::MIN_POSITIVE, 0.5, 1.0] {
+        assert!(dagnam_hygiene::near_duplicates(&[], good).is_some());
+    }
+}
+
+#[test]
+fn degenerate_inputs_have_no_duplicates() {
+    let none = Some((vec![], vec![]));
+    assert_eq!(dagnam_hygiene::near_duplicates(&[], 0.5), none);
+    assert_eq!(dagnam_hygiene::near_duplicates(&["a b c d"], 0.5), none);
+}
+
+#[test]
+fn texts_without_words_are_all_ones_and_so_duplicates_of_each_other() {
+    let (duplicates, pairs) = dagnam_hygiene::near_duplicates(&["", "", ""], 1.0).unwrap();
+    assert_eq!(duplicates, [1, 2]);
+    assert_eq!(pairs, [(0, 1, 1.0), (0, 2, 1.0), (1, 2, 1.0)]);
+}
+
+#[test]
+fn a_text_of_fewer_than_three_words_shingles_to_its_words() {
+    let (duplicates, pairs) = dagnam_hygiene::near_duplicates(&["a b", "a b", "a c"], 1.0).unwrap();
+    assert_eq!(duplicates, [1]);
+    assert_eq!(pairs, [(0, 1, 1.0)]);
+}
+
+#[test]
+fn a_pair_is_reported_once_however_many_bands_it_shares() {
+    let (duplicates, pairs) =
+        dagnam_hygiene::near_duplicates(&["x y z w", "x y z w"], 0.5).unwrap();
+    assert_eq!(duplicates, [1]);
+    assert_eq!(pairs, [(0, 1, 1.0)]);
+}
+
+#[test]
+fn a_cluster_of_three_keeps_its_lowest_index() {
+    let (duplicates, pairs) =
+        dagnam_hygiene::near_duplicates(&["p q r", "p q r", "p q r", "other words here"], 0.9)
+            .unwrap();
+    assert_eq!(duplicates, [1, 2]);
+    assert_eq!(pairs, [(0, 1, 1.0), (0, 2, 1.0), (1, 2, 1.0)]);
+}
+
+#[test]
+fn a_repeated_shingle_does_not_move_the_signature() {
+    let once = dagnam_hygiene::minhash_signature(["a b c", "b c d"]);
+    let twice = dagnam_hygiene::minhash_signature(["a b c", "b c d", "a b c"]);
+    assert_eq!(once, twice);
+}
+
+#[test]
+fn the_loader_reads_a_threshold_to_the_nearest_f64() {
+    // Without serde_json's `float_roundtrip` the parser can land one ulp away on a value like this.
+    let json =
+        r#"{"texts": [], "threshold": 0.9140625000000001, "duplicate_indices": [], "pairs": []}"#;
+    let case: NearDedupCase = serde_json::from_str(json).unwrap();
+    assert_eq!(
+        case.threshold.to_bits(),
+        0.914_062_500_000_000_1_f64.to_bits()
+    );
+    assert_ne!(case.threshold.to_bits(), 0.914_062_5_f64.to_bits());
+}
+
+#[test]
+fn a_long_chain_of_overlapping_texts_is_one_cluster() {
+    // Text i holds words i..i+40 of one sequence: neighbours share most shingles, far ones none,
+    // so the cluster only exists through a chain of pairs (0.8 leaves the estimate's noise room).
+    let words: Vec<String> = (0..240).map(|i| format!("w{i}")).collect();
+    let owned: Vec<String> = (0..200).map(|i| words[i..i + 40].join(" ")).collect();
+    let texts: Vec<&str> = owned.iter().map(String::as_str).collect();
+    let (duplicates, pairs) = dagnam_hygiene::near_duplicates(&texts, 0.8).unwrap();
+    assert_eq!(duplicates, (1..200).collect::<Vec<_>>());
+    // Each later text is joined to an earlier one by a reported pair.
+    assert!((1..200).all(|i| pairs.iter().any(|&(_, high, _)| high == i)));
+}
+
+#[test]
+fn a_tab_is_not_a_word_separator_because_the_input_is_already_normalised() {
+    // The reference's `split()` would read both texts as `a b c`; here only U+0020 separates
+    // words, so the tab stays inside a word. Callers must pass normalised text.
+    let (duplicates, pairs) = dagnam_hygiene::near_duplicates(&["a\tb c", "a b c"], 0.9).unwrap();
+    assert!(duplicates.is_empty() && pairs.is_empty());
+}
