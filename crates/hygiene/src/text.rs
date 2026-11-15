@@ -56,7 +56,7 @@ fn class(ranges: &[(u32, u32)]) -> String {
 
 /// `regex` syntax for [`is_py_word`]: `[\u{30}-\u{39}...]`, no `\w`.
 ///
-/// A static built on first use, because the ranges are parsed from the table at run time; it
+/// A static built on first use, because the string is formatted from the compile-time table on first use; it
 /// derefs to a `&str`. Python's `\W` is the class negated and nested: `[^[...]]`. Under `(?i)`
 /// wrap it with [`case_sensitive`].
 pub static WORD_CLASS: LazyLock<String> = LazyLock::new(|| class(WORD.as_slice()));

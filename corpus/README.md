@@ -7,7 +7,7 @@ value in a file was computed by the reference; none was typed by hand.
 
 - Written by `python/tests/hygiene/export_corpus.py` in
   [dag-contracts](https://github.com/Dagnam-AI/dag-contracts) at the commit that merges
-  that exporter, `3c53df2`, under Python 3.13.14.
+  that exporter, `2cd2ade`, under Python 3.13.14.
 - Regenerate with `uv run python tests/hygiene/export_corpus.py <dir>` from the
   `python/` folder of that checkout; it prints the counts below. The output is seeded
   and sorted, so the same commit writes the same bytes.

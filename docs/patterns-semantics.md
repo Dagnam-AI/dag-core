@@ -28,7 +28,7 @@ to LF.
 
 - the predicates of item 11, named `is_py_word`, `is_py_space` and `is_py_digit`;
 - the class spellings `WORD_CLASS`, `SPACE_CLASS` and `DIGIT_CLASS`, `LazyLock<String>` statics
-  (the ranges are parsed at run time) of the form `[\u{30}-\u{39}...]`, bracketed classes of
+  (formatted from the compile-time table on first use) of the form `[\u{30}-\u{39}...]`, bracketed classes of
   explicit ranges; and `case_sensitive(class)`, which wraps one in `(?-i:...)`.
 
 Bracket-body spellings, as valid nested `regex` syntax (W is a class above, with its brackets):
