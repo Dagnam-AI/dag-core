@@ -43,7 +43,6 @@ static DATE_OF_BIRTH: Pattern = LazyLock::new(|| {
 #[must_use]
 pub fn find_dates_of_birth(text: &str) -> Vec<(usize, usize)> {
     scan(&DATE_OF_BIRTH, text, |start, caps| {
-        let found = group_span(caps, 1)?;
-        (!char_before(text, start).is_some_and(is_ci_ascii_letter)).then_some(found)
+        group_span(caps, 1).filter(|_| !char_before(text, start).is_some_and(is_ci_ascii_letter))
     })
 }

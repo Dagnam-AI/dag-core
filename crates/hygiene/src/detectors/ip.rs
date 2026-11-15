@@ -128,10 +128,9 @@ fn union(mut spans: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
 /// or one of `refused`.
 fn addresses(pattern: &Regex, text: &str, refused: &[char]) -> Vec<(usize, usize)> {
     let candidates = scan(pattern, text, |start, caps| {
-        let found = group_span(caps, 1)?;
-        let blocked =
-            char_before(text, start).is_some_and(|c| is_py_word(c) || refused.contains(&c));
-        (!blocked).then_some(found)
+        group_span(caps, 1).filter(|_| {
+            !char_before(text, start).is_some_and(|c| is_py_word(c) || refused.contains(&c))
+        })
     });
     candidates
         .into_iter()

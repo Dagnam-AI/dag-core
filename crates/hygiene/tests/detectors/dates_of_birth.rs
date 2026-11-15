@@ -132,8 +132,17 @@ fn case_and_the_turkish_i_are_read_as_python_reads_them() {
 #[test]
 fn the_year_digits_of_any_script_make_a_date() {
     // Only the `\d` of the pattern reads them; the day, month and the `19`/`20` are ASCII.
-    assert_finds(find_dates_of_birth, "fullwidth", "DOB: {}", "14/03/\u{ff18}\u{ff17}");
-    assert_misses(find_dates_of_birth, "fullwidth day", "DOB: \u{ff11}\u{ff14}/03/87");
+    assert_finds(
+        find_dates_of_birth,
+        "fullwidth",
+        "DOB: {}",
+        "14/03/\u{ff18}\u{ff17}",
+    );
+    assert_misses(
+        find_dates_of_birth,
+        "fullwidth day",
+        "DOB: \u{ff11}\u{ff14}/03/87",
+    );
 }
 
 #[test]

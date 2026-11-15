@@ -2,10 +2,15 @@
 //! checksums, the registry, and the corpus.
 //!
 //! Failure messages carry case names and offsets, never the text under test.
+mod corpus;
 mod dates_of_birth;
+mod eu_vat;
 mod ibans;
 mod ip_addresses;
+mod keyword_ids;
+mod national_ids;
 mod payment_cards;
+mod registry;
 
 /// A detector's finder: the byte spans of its findings.
 pub(crate) type Finder = fn(&str) -> Vec<(usize, usize)>;

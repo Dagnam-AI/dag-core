@@ -15,11 +15,86 @@ mod cards;
 mod dates;
 mod iban;
 mod ip;
+mod national;
+mod vat;
 
 pub use cards::{find_payment_cards, luhn_ok};
 pub use dates::find_dates_of_birth;
 pub use iban::{find_ibans, iban_mod97_ok};
 pub use ip::{find_ip_addresses, is_ip_address};
+pub use national::{
+    find_ca_sins, find_in_aadhaar, find_in_pans, find_national_ids, find_uk_ninos, verhoeff_ok,
+};
+pub use vat::find_eu_vat;
+
+/// One class of finding: its code, whether its pattern is loose, and the function that finds it.
+///
+/// A loose class is one whose pattern also covers other classes' spans (a phone pattern reads
+/// an IP address or an Aadhaar number as digits): where a stricter class's finding overlaps one
+/// of a loose class's, the stricter class names the text.
+pub struct Detector {
+    /// The class code, as the findings carry it (`PII_PAYMENT_CARD`).
+    pub code: &'static str,
+    /// Whether a stricter class wins over this one where their findings overlap.
+    pub loose: bool,
+    /// The byte spans of this class's findings in a text, ascending and without overlap.
+    pub find: fn(&str) -> Vec<(usize, usize)>,
+}
+
+/// Every class with a finder in this module, in the reference's registry order: the order is part
+/// of the ranking when two findings tie.
+pub static DETECTORS: &[Detector] = &[
+    Detector {
+        code: "PII_PAYMENT_CARD",
+        loose: false,
+        find: find_payment_cards,
+    },
+    Detector {
+        code: "PII_NATIONAL_ID",
+        loose: false,
+        find: find_national_ids,
+    },
+    Detector {
+        code: "PII_IBAN",
+        loose: false,
+        find: find_ibans,
+    },
+    Detector {
+        code: "PII_IP_ADDRESS",
+        loose: false,
+        find: find_ip_addresses,
+    },
+    Detector {
+        code: "PII_DATE_OF_BIRTH",
+        loose: false,
+        find: find_dates_of_birth,
+    },
+    Detector {
+        code: "PII_UK_NINO",
+        loose: false,
+        find: find_uk_ninos,
+    },
+    Detector {
+        code: "PII_CA_SIN",
+        loose: false,
+        find: find_ca_sins,
+    },
+    Detector {
+        code: "PII_IN_AADHAAR",
+        loose: false,
+        find: find_in_aadhaar,
+    },
+    Detector {
+        code: "PII_IN_PAN",
+        loose: false,
+        find: find_in_pans,
+    },
+    Detector {
+        code: "PII_EU_VAT",
+        loose: false,
+        find: find_eu_vat,
+    },
+];
 
 /// Compiles a detector pattern.
 ///

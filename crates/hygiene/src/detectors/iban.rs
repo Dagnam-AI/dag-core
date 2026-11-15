@@ -147,8 +147,7 @@ fn iban_end(raw: &str) -> Option<usize> {
 #[must_use]
 pub fn find_ibans(text: &str) -> Vec<(usize, usize)> {
     let candidates = scan(&CANDIDATE, text, |start, caps| {
-        let found = group_span(caps, 1)?;
-        not_ascii_alnum(char_before(text, start)).then_some(found)
+        group_span(caps, 1).filter(|_| not_ascii_alnum(char_before(text, start)))
     });
     candidates
         .into_iter()

@@ -1,7 +1,7 @@
 //! Payment cards: 13 to 19 digits that pass Luhn.
 use std::sync::LazyLock;
 
-use super::{Pattern, compile, digit_value, digits_of, not_digit_or_hyphen, scan};
+use super::{Pattern, compile, digit_value, digits_of, group_span, not_digit_or_hyphen, scan};
 use crate::text::{DIGIT_CLASS, char_before};
 
 /// 13 to 19 digits, adjacent digits at most one space or hyphen apart, then a character that
@@ -41,8 +41,7 @@ pub fn luhn_ok(digits: &str) -> bool {
 #[must_use]
 pub fn find_payment_cards(text: &str) -> Vec<(usize, usize)> {
     let candidates = scan(&CANDIDATE, text, |start, caps| {
-        let found = super::group_span(caps, 1)?;
-        not_digit_or_hyphen(char_before(text, start)).then_some(found)
+        group_span(caps, 1).filter(|_| not_digit_or_hyphen(char_before(text, start)))
     });
     candidates
         .into_iter()

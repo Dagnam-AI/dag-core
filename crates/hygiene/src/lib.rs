@@ -9,8 +9,9 @@ mod text;
 
 pub use cluster::{BANDS, Pair, SHINGLE_SIZE, near_duplicates};
 pub use detectors::{
-    find_dates_of_birth, find_ibans, find_ip_addresses, find_payment_cards, iban_mod97_ok,
-    is_ip_address, luhn_ok,
+    DETECTORS, Detector, find_ca_sins, find_dates_of_birth, find_eu_vat, find_ibans,
+    find_in_aadhaar, find_in_pans, find_ip_addresses, find_national_ids, find_payment_cards,
+    find_uk_ninos, iban_mod97_ok, is_ip_address, luhn_ok, verhoeff_ok,
 };
 pub use minhash::{NUM_PERMUTATIONS, minhash_signature};
 pub use text::{
