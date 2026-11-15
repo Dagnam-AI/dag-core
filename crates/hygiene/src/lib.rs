@@ -3,9 +3,14 @@
 
 mod cluster;
 mod minhash;
+mod text;
 
 pub use cluster::{BANDS, Pair, SHINGLE_SIZE, near_duplicates};
 pub use minhash::{NUM_PERMUTATIONS, minhash_signature};
+pub use text::{
+    DIGIT_CLASS, SPACE_CLASS, WORD_CLASS, case_sensitive, char_at, char_before, is_py_digit,
+    is_py_space, is_py_word, to_char_offsets,
+};
 
 /// The binding contract version, bumped whenever a binding changes meaning.
 ///

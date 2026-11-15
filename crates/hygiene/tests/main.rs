@@ -12,6 +12,8 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
+mod text;
+
 /// The cases `corpus/minhash.jsonl` holds. Move with `corpus/README.md` on every re-export.
 const MINHASH_CASES: usize = 739;
 /// The cases `corpus/near_dedup.jsonl` holds.
