@@ -91,13 +91,26 @@ pub fn find_phones(text: &str) -> Vec<(usize, usize)> {
     for (index, &(start, end)) in ordinary.iter().enumerate() {
         spans.push((start, end));
         let stop = ordinary.get(index + 1).map_or(text.len(), |next| next.0);
-        let mut position = end;
-        while let Some((from, to)) = next_number(text, position, stop) {
-            spans.push((from, to));
-            position = to;
-        }
+        spans.extend(chain(end, |position| next_number(text, position, stop)));
     }
     spans
+}
+
+/// The numbers read on from `position`, each found by `next` from the end of the one before.
+///
+/// A link that does not end past where it was read from is refused (the text a finder reads is
+/// finite, so every link must move on), so a `next` that stops advancing ends the chain instead
+/// of filling memory with the same link.
+fn chain(
+    mut position: usize,
+    next: impl Fn(usize) -> Option<(usize, usize)>,
+) -> Vec<(usize, usize)> {
+    let mut links = Vec::new();
+    while let Some((from, to)) = next(position).filter(|&(_, to)| to > position) {
+        links.push((from, to));
+        position = to;
+    }
+    links
 }
 
 /// The accepted number that follows `position` across at most one space or hyphen, in the text
@@ -138,17 +151,57 @@ pub fn find_emails(text: &str) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
     let mut position = 0;
     while let Some(head) = EMAIL_HEAD.find_at(text, position) {
-        if !head_start_ok(text, head.start()) {
-            // Every position inside this run of head characters follows one and is refused as
-            // well, so the search resumes at the `@` that ends it (not one character on, which
-            // would read the run again for each position).
-            position = head.end() - 1;
-        } else if let Some(end) = domain_end(text, head.end()) {
-            spans.push((head.start(), end));
-            position = end;
+        // Every position inside a head's run of head characters follows one and is refused by
+        // the reference's lookbehind, so a refused head and a head with no domain both resume
+        // after the `@`, which is what the reference's one-character restarts come to.
+        let domain = if head_start_ok(text, head.start()) {
+            domain_end(text, head.end())
         } else {
-            position = head.end();
+            None
+        };
+        if let Some(end) = domain {
+            spans.push((head.start(), end));
         }
+        // The search resumes at the domain's end, never before the `@` it started after.
+        position = domain.map_or(head.end(), |end| end.max(head.end()));
     }
     spans
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::chain;
+
+    /// A `next` that answers `answer(position)` for at most five calls and then nothing, with
+    /// the number of calls it got, so a chain that stops refusing a link cannot run on.
+    fn links(answer: fn(usize) -> (usize, usize)) -> (Vec<(usize, usize)>, usize) {
+        let calls = Cell::new(0);
+        let found = chain(12, |position| {
+            calls.set(calls.get() + 1);
+            (calls.get() <= 5).then(|| answer(position))
+        });
+        (found, calls.get())
+    }
+
+    #[test]
+    fn a_link_that_ends_where_it_was_read_from_ends_the_chain() {
+        assert_eq!(links(|position| (position, position)), (vec![], 1));
+    }
+
+    #[test]
+    fn a_link_that_ends_before_where_it_was_read_from_ends_the_chain() {
+        assert_eq!(links(|_| (1, 1)), (vec![], 1));
+    }
+
+    #[test]
+    fn links_that_move_on_are_all_taken_until_the_reader_has_none() {
+        let (found, calls) = links(|position| (position + 1, position + 13));
+        assert_eq!(
+            found,
+            vec![(13, 25), (26, 38), (39, 51), (52, 64), (65, 77)]
+        );
+        assert_eq!(calls, 6);
+    }
 }
