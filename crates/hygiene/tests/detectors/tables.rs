@@ -6,8 +6,9 @@
 //! or registry entry changes no result for the numbers the other tests happen to use.
 use dagnam_hygiene::{find_eu_vat, find_ibans, verhoeff_ok};
 
-/// Valid 12-digit Verhoeff numbers (not starting 0 or 1, as an Aadhaar number), each checked
-/// by the reference's `_verhoeff_ok`; the reference rejects every one of the 108 single-digit
+/// Valid 12-digit Verhoeff numbers (a few start with 0 or 1, which the Aadhaar finder's pattern
+/// would not accept: only the checksum is under test), each checked by the reference's
+/// `_verhoeff_ok`; the reference rejects every one of the 108 single-digit
 /// changes of each of them (a Verhoeff check detects any single-digit error).
 const VALID_12: [&str; 40] = [
     "390996030820",
