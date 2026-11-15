@@ -62,9 +62,9 @@ fn candidate_pairs(signatures: &[Signature]) -> BTreeSet<(usize, usize)> {
 
 /// The root of `index`, halving the path on the way up, as the reference does.
 ///
-/// A path holds at most `parent.len()` nodes, which is all the loop is bounded by: it ends at
-/// the root long before. The bound keeps a wrong root test from spinning forever.
-#[allow(clippy::indexing_slicing)] // every `parent` value is an index into `parent`
+/// A path holds at most `parent.len()` nodes, which is all the loop is bounded by: it reaches
+/// the root by the last iteration at the latest. The bound keeps a wrong root test from spinning forever.
+#[allow(clippy::indexing_slicing)] // `index` and every `parent` value are indices into `parent`
 fn find(parent: &mut [usize], mut index: usize) -> usize {
     for _ in 0..parent.len() {
         if parent[index] == index {
