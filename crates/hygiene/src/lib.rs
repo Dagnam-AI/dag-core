@@ -6,6 +6,7 @@ mod contact;
 mod credentials;
 mod detectors;
 mod minhash;
+mod spans;
 mod table;
 mod text;
 
@@ -18,6 +19,7 @@ pub use detectors::{
     find_uk_ninos, iban_mod97_ok, is_ip_address, luhn_ok, verhoeff_ok,
 };
 pub use minhash::{NUM_PERMUTATIONS, minhash_signature};
+pub use spans::findings;
 pub use text::{
     DIGIT_CLASS, SPACE_CLASS, WORD_CLASS, case_sensitive, char_at, char_before, is_py_digit,
     is_py_space, is_py_word, to_char_offsets,
