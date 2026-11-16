@@ -16,6 +16,7 @@ mod contact;
 mod credentials;
 mod detectors;
 mod guard;
+mod spans;
 mod text;
 
 #[global_allocator]

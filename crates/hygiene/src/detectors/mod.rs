@@ -39,6 +39,10 @@ pub struct Detector {
     pub code: &'static str,
     /// Whether a stricter class wins over this one where their findings overlap.
     pub loose: bool,
+    /// What a redaction writes for this class when it is not the template with the class code
+    /// (`[REDACTED:PII_EMAIL]`), `None` for the template. A scan reads text between placeholders
+    /// as separate strings, so every placeholder a class writes must be listed here.
+    pub placeholder: Option<&'static str>,
     /// The byte spans of this class's findings in a text, ascending and without overlap.
     pub find: fn(&str) -> Vec<(usize, usize)>,
 }
@@ -49,66 +53,79 @@ pub static DETECTORS: &[Detector] = &[
     Detector {
         code: "PII_EMAIL",
         loose: false,
+        placeholder: None,
         find: find_emails,
     },
     Detector {
         code: "PII_PHONE",
         loose: true,
+        placeholder: None,
         find: find_phones,
     },
     Detector {
         code: "PII_PAYMENT_CARD",
         loose: false,
+        placeholder: None,
         find: find_payment_cards,
     },
     Detector {
         code: "PII_NATIONAL_ID",
         loose: false,
+        placeholder: None,
         find: find_national_ids,
     },
     Detector {
         code: "PII_SECRET",
         loose: false,
+        placeholder: Some("<SECRET>"),
         find: find_secrets,
     },
     Detector {
         code: "PII_IBAN",
         loose: false,
+        placeholder: None,
         find: find_ibans,
     },
     Detector {
         code: "PII_IP_ADDRESS",
         loose: false,
+        placeholder: None,
         find: find_ip_addresses,
     },
     Detector {
         code: "PII_DATE_OF_BIRTH",
         loose: false,
+        placeholder: None,
         find: find_dates_of_birth,
     },
     Detector {
         code: "PII_UK_NINO",
         loose: false,
+        placeholder: None,
         find: find_uk_ninos,
     },
     Detector {
         code: "PII_CA_SIN",
         loose: false,
+        placeholder: None,
         find: find_ca_sins,
     },
     Detector {
         code: "PII_IN_AADHAAR",
         loose: false,
+        placeholder: None,
         find: find_in_aadhaar,
     },
     Detector {
         code: "PII_IN_PAN",
         loose: false,
+        placeholder: None,
         find: find_in_pans,
     },
     Detector {
         code: "PII_EU_VAT",
         loose: false,
+        placeholder: None,
         find: find_eu_vat,
     },
 ];
