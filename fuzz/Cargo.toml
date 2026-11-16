@@ -1,0 +1,27 @@
+[package]
+name = "dagnam-hygiene-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+dagnam-hygiene = { path = "../crates/hygiene" }
+libfuzzer-sys = "0.4.13"
+
+[[bin]]
+name = "findings"
+path = "fuzz_targets/findings.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "near_duplicates"
+path = "fuzz_targets/near_duplicates.rs"
+test = false
+doc = false
+bench = false
