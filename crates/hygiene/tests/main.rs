@@ -13,6 +13,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 mod contact;
+mod credentials;
 mod detectors;
 mod guard;
 mod text;
