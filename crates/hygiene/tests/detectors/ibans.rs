@@ -1,5 +1,5 @@
 //! `find_ibans` and `iban_mod97_ok`.
-use dagnam_hygiene::{find_ibans, iban_mod97_ok};
+use crate::reference::{find_ibans, iban_mod97_ok};
 
 use super::{assert_finds, assert_misses};
 

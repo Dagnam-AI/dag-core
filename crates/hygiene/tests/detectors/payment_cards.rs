@@ -1,5 +1,5 @@
 //! `find_payment_cards` and `luhn_ok`.
-use dagnam_hygiene::{find_payment_cards, luhn_ok};
+use crate::reference::{find_payment_cards, luhn_ok};
 
 use super::{assert_finds, assert_misses};
 

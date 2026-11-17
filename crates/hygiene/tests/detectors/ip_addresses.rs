@@ -1,5 +1,5 @@
 //! `find_ip_addresses` and `is_ip_address`.
-use dagnam_hygiene::{find_ip_addresses, is_ip_address};
+use crate::reference::{find_ip_addresses, is_ip_address};
 
 use super::{assert_finds, assert_misses};
 

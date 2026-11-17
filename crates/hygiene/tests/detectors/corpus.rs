@@ -39,7 +39,7 @@ fn spans_of_every_finder(text: &str) -> Vec<(usize, usize, &'static str)> {
     DETECTORS
         .iter()
         .flat_map(|detector| {
-            let spans = (detector.find)(text);
+            let spans = (detector.find)(text, crate::reference::VERSION);
             let bytes: Vec<usize> = spans.iter().flat_map(|&(s, e)| [s, e]).collect();
             let offsets = to_char_offsets(text, &bytes);
             offsets

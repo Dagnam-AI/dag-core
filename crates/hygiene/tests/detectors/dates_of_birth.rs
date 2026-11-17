@@ -1,5 +1,5 @@
 //! `find_dates_of_birth`.
-use dagnam_hygiene::find_dates_of_birth;
+use crate::reference::find_dates_of_birth;
 
 use super::{assert_finds, assert_misses, fill};
 

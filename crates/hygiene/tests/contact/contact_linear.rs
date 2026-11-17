@@ -3,7 +3,7 @@
 //! eight times the smaller (a quadratic read would take sixteen).
 use std::time::{Duration, Instant};
 
-use dagnam_hygiene::{find_emails, find_phones};
+use crate::reference::{find_emails, find_phones};
 
 const SMALL: usize = 50_000;
 const LARGE: usize = 4 * SMALL;

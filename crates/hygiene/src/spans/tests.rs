@@ -3,6 +3,9 @@
 //! scan in `cost_tests`; the corpus and the wall-clock timing live in `tests/spans`.
 use super::*;
 
+/// The Unicode these unit tests read under: the reference interpreter's (Python 3.13).
+pub(super) const VERSION: UnicodeVersion = UnicodeVersion::V15_1;
+
 /// The candidate of class `code` over bytes `start..end`.
 pub(super) fn cand(start: usize, end: usize, code: &str) -> Cand {
     let order = DETECTORS.iter().position(|d| d.code == code).unwrap();
@@ -56,19 +59,19 @@ fn the_placeholder_pattern_is_built_from_the_detectors_that_have_one() {
             code: "PII_X",
             loose: false,
             placeholder: Some("<A.B>"),
-            find: |_| Vec::new(),
+            find: |_, _| Vec::new(),
         },
         Detector {
             code: "PII_Y",
             loose: false,
             placeholder: None,
-            find: |_| Vec::new(),
+            find: |_, _| Vec::new(),
         },
         Detector {
             code: "PII_Z",
             loose: false,
             placeholder: Some("{z}"),
-            find: |_| Vec::new(),
+            find: |_, _| Vec::new(),
         },
     ];
     assert_eq!(
@@ -216,28 +219,35 @@ static EMPTY_SPANS: [Detector; 1] = [Detector {
     code: "PII_TEST",
     loose: false,
     placeholder: None,
-    find: |_| vec![(2, 2), (1, 3), (5, 4)],
+    find: |_, _| vec![(2, 2), (1, 3), (5, 4)],
 }];
 
 #[test]
 fn empty_and_reversed_spans_are_dropped() {
-    assert_eq!(view(&detect(&EMPTY_SPANS, "abcdef")), [(1, 3, "PII_TEST")]);
+    assert_eq!(
+        view(&detect(&EMPTY_SPANS, "abcdef", VERSION)),
+        [(1, 3, "PII_TEST")]
+    );
 }
 
 #[test]
 fn every_detector_reads_the_piece_in_registry_order() {
     // The phone is first in the text and second in the registry.
-    let found = view(&detect(DETECTORS, "+44 20 7946 0958 jane@example.com"));
+    let found = view(&detect(
+        DETECTORS,
+        "+44 20 7946 0958 jane@example.com",
+        VERSION,
+    ));
     assert_eq!(found, [(17, 33, "PII_EMAIL"), (0, 16, "PII_PHONE")]);
 }
 
 #[test]
 fn a_piece_holds_content_when_it_has_a_letter_a_digit_or_an_at_sign() {
     for yes in ["a", "7", "@", "_@_", "-é-", "٣", "..x.."] {
-        assert!(holds_content(yes), "{yes}");
+        assert!(holds_content(yes, VERSION), "{yes}");
     }
     for no in ["", "_", " \t\n", ":/._-+", "[]<>()'\"`", "___"] {
-        assert!(!holds_content(no), "{no}");
+        assert!(!holds_content(no, VERSION), "{no}");
     }
 }
 
@@ -252,8 +262,8 @@ fn a_piece_that_holds_nothing_is_clean_for_every_detector() {
             for third in &alphabet {
                 text.clear();
                 text.extend([first, second, third]);
-                assert!(!holds_content(&text));
-                assert_eq!(view(&detect(DETECTORS, &text)), [], "{text:?}");
+                assert!(!holds_content(&text, VERSION));
+                assert_eq!(view(&detect(DETECTORS, &text, VERSION)), [], "{text:?}");
             }
         }
     }
@@ -263,7 +273,7 @@ fn a_piece_that_holds_nothing_is_clean_for_every_detector() {
 fn offsets_come_out_in_code_points() {
     let text = "ééé jane@example.com ✓ call +44 20 7946 0958 😀😀 4111111111111111";
     assert_eq!(
-        findings(text),
+        findings(text, VERSION),
         [
             (4, 20, "PII_EMAIL"),
             (28, 44, "PII_PHONE"),

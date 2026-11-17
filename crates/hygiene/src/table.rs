@@ -1,6 +1,6 @@
 //! The class table's parser, run by the compiler.
 //!
-//! `data/py_classes.txt` is read by `const` evaluation, so a malformed file is a build error
+//! Each `data/py_classes_<major>_<minor>.txt` is read by `const` evaluation, so a malformed file is a build error
 //! on every platform and never an empty class at run time. The format, written by
 //! `scripts/gen_py_classes.py`:
 //!

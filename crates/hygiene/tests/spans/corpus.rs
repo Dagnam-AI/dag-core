@@ -8,7 +8,7 @@
 //! each finding is what turns those into the reference's exact spans.
 use std::collections::BTreeMap;
 
-use dagnam_hygiene::findings;
+use crate::reference::findings;
 
 use crate::{CredentialCase, FindingsCase, cases};
 

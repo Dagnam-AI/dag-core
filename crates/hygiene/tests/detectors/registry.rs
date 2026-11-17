@@ -1,6 +1,8 @@
 //! The registry: its order, its flags, and that each entry finds its own class.
 use dagnam_hygiene::DETECTORS;
 
+use crate::reference::VERSION;
+
 use super::fill;
 use crate::{CredentialCase, cases};
 
@@ -37,7 +39,7 @@ fn secret_value() -> String {
         .find(|value| {
             let (text, span) = fill(template, value);
             DETECTORS.iter().all(|d| {
-                let found = (d.find)(&text);
+                let found = (d.find)(&text, VERSION);
                 if d.code == "PII_SECRET" {
                     found == [span]
                 } else {
@@ -104,14 +106,17 @@ fn each_entry_finds_exactly_the_sample_of_its_own_class_and_no_other() {
     let samples = samples();
     for (detector, (code, text, span)) in DETECTORS.iter().zip(&samples) {
         assert_eq!(detector.code, *code);
-        assert_eq!((detector.find)(text), vec![*span], "{code}");
+        assert_eq!((detector.find)(text, VERSION), vec![*span], "{code}");
         // A loose class reads other classes' samples as digits (an Aadhaar number is a phone
         // number to the phone pattern): a stricter class names that text.
         for (other, text, _) in samples
             .iter()
             .filter(|sample| sample.0 != *code && !detector.loose)
         {
-            assert!((detector.find)(text).is_empty(), "{code} on {other}");
+            assert!(
+                (detector.find)(text, VERSION).is_empty(),
+                "{code} on {other}"
+            );
         }
     }
 }
@@ -120,5 +125,5 @@ fn each_entry_finds_exactly_the_sample_of_its_own_class_and_no_other() {
 fn the_loose_phone_class_also_reads_the_digits_of_a_stricter_class() {
     let (text, span) = fill("uid {}.", "2345 6789 0124");
     let phone = DETECTORS.iter().find(|d| d.code == "PII_PHONE").unwrap();
-    assert_eq!((phone.find)(&text), vec![span]);
+    assert_eq!((phone.find)(&text, VERSION), vec![span]);
 }

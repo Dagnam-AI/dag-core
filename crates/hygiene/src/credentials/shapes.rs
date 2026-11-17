@@ -5,17 +5,18 @@
 use std::sync::LazyLock;
 
 use super::{after, for_each_match, is_value_stop, name_start_ok, run_end, url};
-use crate::detectors::{Pattern, compile};
-use crate::text::{SPACE_CLASS, case_sensitive, char_at, char_before, is_py_digit};
+use crate::detectors::{FixedPattern, Pattern, compile};
+use crate::text::{case_sensitive, char_at, char_before};
+use crate::unicode::{UnicodeVersion, Versioned, is_py_digit, space_class};
 
 /// The spans of every credential `text` carries by its shape alone, name or no name.
-pub(super) fn shape_spans(text: &str) -> Vec<(usize, usize)> {
-    let mut spans = provider_keys(text);
+pub(super) fn shape_spans(text: &str, version: UnicodeVersion) -> Vec<(usize, usize)> {
+    let mut spans = provider_keys(text, version);
     spans.extend(pem_blocks(text));
-    spans.extend(bearer_values(text));
-    spans.extend(connection_passwords(text));
-    spans.extend(url::url_password_spans(text));
-    spans.extend(basic_values(text));
+    spans.extend(bearer_values(text, version));
+    spans.extend(connection_passwords(text, version));
+    spans.extend(url::url_password_spans(text, version));
+    spans.extend(basic_values(text, version));
     spans
 }
 
@@ -24,7 +25,7 @@ pub(super) fn shape_spans(text: &str) -> Vec<(usize, usize)> {
 /// The literal head of every provider key shape: a candidate start, found cheaply, whose body
 /// is then read in code after the lookbehind has been checked. (A pattern over whole keys would
 /// scan a long run for each start the lookbehind then refuses.)
-static KEY_HEAD: Pattern = LazyLock::new(|| {
+static KEY_HEAD: FixedPattern = LazyLock::new(|| {
     compile(
         r"sk-|[rs]k_live_|AKIA|ASIA|gh[pousr]_|github_pat_|xoxe\.xox[abepr]-|xox[abepr]-|AIza|hf_|glpat-|eyJ",
     )
@@ -81,14 +82,14 @@ fn exactly(body: &str, ok: fn(u8) -> bool, size: usize, tail: fn(u8) -> bool) ->
 /// segment of 20 or more word characters holds a digit, or is the last and a non-ASCII decimal
 /// digit follows the run, or mixes upper and lower case (what a real key has and kebab-case
 /// words do not). The key is the whole run.
-fn sk_body(body: &str) -> Option<usize> {
+fn sk_body(body: &str, version: UnicodeVersion) -> Option<usize> {
     let len = run_len(body, is_key_byte);
     let (run, rest) = body.split_at(len);
     let after_run = rest.chars().next();
     let accepted = run.rsplit('-').enumerate().any(|(from_end, segment)| {
         segment.len() >= 20
             && (segment.bytes().any(|b| b.is_ascii_digit())
-                || (from_end == 0 && after_run.is_some_and(is_py_digit))
+                || (from_end == 0 && after_run.is_some_and(|c| is_py_digit(version, c)))
                 || (segment.bytes().any(|b| b.is_ascii_uppercase())
                     && segment.bytes().any(|b| b.is_ascii_lowercase())))
     });
@@ -108,9 +109,9 @@ fn jwt_body(body: &str) -> Option<usize> {
 
 /// The length of the body of the key that starts with `prefix`, or `None` when the text after
 /// the prefix is not one.
-fn body_len(prefix: &str, body: &str) -> Option<usize> {
+fn body_len(prefix: &str, body: &str, version: UnicodeVersion) -> Option<usize> {
     match prefix {
-        "sk-" => sk_body(body),
+        "sk-" => sk_body(body, version),
         "rk_live_" | "sk_live_" => at_least(body, is_alnum, 16),
         "AKIA" | "ASIA" => exactly(body, is_upper_or_digit, 16, is_alnum),
         "github_pat_" => at_least(body, is_word_byte, 22),
@@ -131,7 +132,7 @@ fn is_key_char(c: char) -> bool {
 /// Provider keys by their documented prefix and shape (`OpenAI`, Anthropic, Stripe live keys, AWS
 /// key ids, GitHub, Slack, Google, Hugging Face, GitLab) and JWTs: the whole match, and not
 /// after a character a key is made of.
-fn provider_keys(text: &str) -> Vec<(usize, usize)> {
+fn provider_keys(text: &str, version: UnicodeVersion) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
     for_each_match(
         &KEY_HEAD,
@@ -139,7 +140,7 @@ fn provider_keys(text: &str) -> Vec<(usize, usize)> {
         |head| !char_before(text, head.start()).is_some_and(is_key_char),
         |caps| {
             let head = caps.get_match();
-            body_len(head.as_str(), after(text, head.end())).map_or(
+            body_len(head.as_str(), after(text, head.end()), version).map_or(
                 super::one_on(text, head.start()),
                 |len| {
                     spans.push((head.start(), head.end() + len));
@@ -155,7 +156,7 @@ fn provider_keys(text: &str) -> Vec<(usize, usize)> {
 
 /// A private-key block, to its END line, or to the end of the text when a truncation cut it off,
 /// so the key body never survives a cut (`docs/patterns.md`, P08: `\Z` is `\z`).
-static PEM: Pattern = LazyLock::new(|| {
+static PEM: FixedPattern = LazyLock::new(|| {
     compile(
         r"(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\z)",
     )
@@ -181,8 +182,8 @@ fn not_after_word(text: &str, start: usize) -> bool {
 /// case-insensitively; the token is group 1. Python's `(?i)` also reads U+0130 and U+0131 as `i`,
 /// which the crate does not, so the class spells them (`docs/patterns-semantics.md`, item 6).
 /// The space class is Python's `\s`, which `(?i)` does not touch, so it stands outside the flag.
-static BEARER: Pattern = LazyLock::new(|| {
-    let space = case_sensitive(&SPACE_CLASS);
+static BEARER: Pattern = Versioned::new(|version| {
+    let space = case_sensitive(space_class(version));
     compile(&format!(
         r"(?i)bearer{space}+([a-z0-9._~+/\u{{130}}\u{{131}}-]{{19,}}[a-z0-9\u{{130}}\u{{131}}]=*)"
     ))
@@ -190,10 +191,10 @@ static BEARER: Pattern = LazyLock::new(|| {
 
 /// The token of every `Bearer <token>` of 20 or more characters, which is what keeps "the bearer
 /// token" and "Bearer of bad news" out.
-fn bearer_values(text: &str) -> Vec<(usize, usize)> {
+fn bearer_values(text: &str, version: UnicodeVersion) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
     for_each_match(
-        &BEARER,
+        BEARER.get(version),
         text,
         |found| not_after_word(text, found.start()),
         |caps| {
@@ -208,8 +209,8 @@ fn bearer_values(text: &str) -> Vec<(usize, usize)> {
 /// continue the base64 (`docs/patterns.md`, P11). The match takes the terminator; the search resumes where the
 /// base64 ends.
 /// The space class stands outside the `(?i)` flag, as in [`BEARER`].
-static BASIC: Pattern = LazyLock::new(|| {
-    let space = case_sensitive(&SPACE_CLASS);
+static BASIC: Pattern = Versioned::new(|version| {
+    let space = case_sensitive(space_class(version));
     compile(&format!(
         r"(?i)bas[i\u{{130}}\u{{131}}]c{space}+([A-Za-z0-9+/\u{{130}}\u{{131}}]{{4,}}={{0,2}})(?:\z|[^A-Za-z0-9+/=\u{{130}}\u{{131}}])"
     ))
@@ -254,10 +255,10 @@ fn is_user_pass(b64: &str) -> bool {
 
 /// The base64 of every `Basic <base64>` that decodes to printable text of a user, a colon and a password, which
 /// keeps "Basic training" out. A match that does not is still consumed, as in the reference.
-fn basic_values(text: &str) -> Vec<(usize, usize)> {
+fn basic_values(text: &str, version: UnicodeVersion) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
     for_each_match(
-        &BASIC,
+        BASIC.get(version),
         text,
         |found| not_after_word(text, found.start()),
         |caps| {
@@ -276,7 +277,7 @@ fn basic_values(text: &str) -> Vec<(usize, usize)> {
 }
 
 /// The name `pwd` and its `=`, case-insensitively: a connection string's password.
-static PWD_HEAD: Pattern = LazyLock::new(|| compile(r"(?i:pwd)[=]"));
+static PWD_HEAD: FixedPattern = LazyLock::new(|| compile(r"(?i:pwd)[=]"));
 
 /// Whether the text at `at` reads as a path or a variable and so is no password, since `PWD` is
 /// also the shell's working directory. It starts with one of `/ ~ . $ %`, a backslash or a backtick, or
@@ -292,7 +293,7 @@ fn is_working_directory(text: &str, at: usize) -> bool {
 
 /// The value of every `pwd` written with no space around the `=`: the value only, after an
 /// optional quote. The match is not after `$` and starts a name (`docs/patterns.md`, P10).
-fn connection_passwords(text: &str) -> Vec<(usize, usize)> {
+fn connection_passwords(text: &str, version: UnicodeVersion) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
     for_each_match(
         &PWD_HEAD,
@@ -302,7 +303,7 @@ fn connection_passwords(text: &str) -> Vec<(usize, usize)> {
             let head = caps.get_match();
             let quoted = char_at(text, head.end()).is_some_and(|c| c == '"' || c == '\'');
             let value = head.end() + usize::from(quoted);
-            let end = run_end(text, value, is_value_stop);
+            let end = run_end(text, value, |c| is_value_stop(c, version));
             if end > value && !is_working_directory(text, value) {
                 spans.push((value, end));
                 end

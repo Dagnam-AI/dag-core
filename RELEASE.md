@@ -84,7 +84,7 @@ From a neutral directory (not this checkout), in a fresh environment, with `X.Y.
 cd "$(mktemp -d)"
 uv venv --python 3.12 && . .venv/bin/activate
 uv pip install --refresh dagnam-core==X.Y.Z
-python -c "from dagnam_core import hygiene; print(hygiene.CORE_API)"   # prints 1
+python -c "from dagnam_core import hygiene; print(hygiene.CORE_API)"   # prints 2
 ```
 
 PyPI's index can lag an upload by a few minutes; retry the install with `--refresh` before

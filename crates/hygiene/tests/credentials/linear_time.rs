@@ -8,7 +8,7 @@
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
-use dagnam_hygiene::find_secrets;
+use crate::reference::find_secrets;
 use serde::Deserialize;
 
 use super::corpus::{Part, assemble};

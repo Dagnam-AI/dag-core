@@ -65,8 +65,8 @@ inputs with no difference (terminator form for every TAIL guard); the corpus rem
 
 ## Semantics
 
-How `\d`, `\w`, `\s`, `\b`, `$`, `(?i)` and offsets are spelled in Rust, the pinned reference
-interpreter and its generated tables, and the character predicates the code checks use are in
+How `\d`, `\w`, `\s`, `\b`, `$`, `(?i)` and offsets are spelled in Rust, the reference
+interpreter and its generated tables (one per Unicode version), and the character predicates the code checks use are in
 [patterns-semantics.md](patterns-semantics.md). "Semantics N" in the entries is item N there.
 
 ## Fragments

@@ -1,5 +1,5 @@
 //! `find_ca_sins`, `find_in_aadhaar` and the checksums `verhoeff_ok` beside `luhn_ok`.
-use dagnam_hygiene::{find_ca_sins, find_in_aadhaar, luhn_ok, verhoeff_ok};
+use crate::reference::{find_ca_sins, find_in_aadhaar, luhn_ok, verhoeff_ok};
 
 use super::payment_cards::complete;
 use super::{assert_finds, assert_misses};

@@ -14,7 +14,8 @@
 //! The other direction holds with no exception: each span the finder reports lies inside some
 //! span of the case, of any class (regions never overlap, so a span inside none would be one
 //! the reference does not report). Messages carry the case number and the offsets, never text.
-use dagnam_hygiene::{find_secrets, to_char_offsets};
+use crate::reference::find_secrets;
+use dagnam_hygiene::to_char_offsets;
 use regex::Regex;
 
 use crate::{CredentialCase, FindingsCase, cases};

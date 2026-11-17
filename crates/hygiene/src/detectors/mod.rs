@@ -11,7 +11,7 @@ use regex::{Captures, Regex};
 
 use crate::contact::{find_emails, find_phones};
 use crate::credentials::find_secrets;
-use crate::text::is_py_digit;
+use crate::unicode::{UnicodeVersion, Versioned, is_py_digit};
 
 mod cards;
 mod dates;
@@ -44,7 +44,7 @@ pub struct Detector {
     /// as separate strings, so every placeholder a class writes must be listed here.
     pub placeholder: Option<&'static str>,
     /// The byte spans of this class's findings in a text, ascending and without overlap.
-    pub find: fn(&str) -> Vec<(usize, usize)>,
+    pub find: fn(&str, UnicodeVersion) -> Vec<(usize, usize)>,
 }
 
 /// Every class with a finder in this module, in the reference's registry order: the order is part
@@ -183,14 +183,14 @@ pub(crate) fn group_span(caps: &Captures<'_>, group: usize) -> Option<(usize, us
 ///
 /// Every run of decimal digits in Unicode starts at a zero and counts up in tens, so a digit's
 /// value is how many digits run unbroken before it, modulo ten. `c` must satisfy
-/// [`is_py_digit`]; any other character has no value.
-pub(crate) fn digit_value(c: char) -> u32 {
+/// [`is_py_digit`] under `version`; any other character has no value.
+pub(crate) fn digit_value(c: char, version: UnicodeVersion) -> u32 {
     let code = u32::from(c);
     let before: u32 = (1..=code)
         .take_while(|back| {
             code.checked_sub(*back)
                 .and_then(char::from_u32)
-                .is_some_and(is_py_digit)
+                .is_some_and(|c| is_py_digit(version, c))
         })
         .map(|_| 1)
         .sum();
@@ -203,14 +203,18 @@ pub(crate) fn not_ascii_alnum(c: Option<char>) -> bool {
 }
 
 /// Whether `c` is not a decimal digit of any script and not a hyphen.
-pub(crate) fn not_digit_or_hyphen(c: Option<char>) -> bool {
-    !c.is_some_and(|c| is_py_digit(c) || c == '-')
+pub(crate) fn not_digit_or_hyphen(c: Option<char>, version: UnicodeVersion) -> bool {
+    !c.is_some_and(|c| is_py_digit(version, c) || c == '-')
 }
 
 /// The digits of `text` (every decimal digit of any script), as a string for a checksum.
-pub(crate) fn digits_of(text: &str) -> String {
-    text.chars().filter(|c| is_py_digit(*c)).collect()
+pub(crate) fn digits_of(text: &str, version: UnicodeVersion) -> String {
+    text.chars().filter(|c| is_py_digit(version, *c)).collect()
 }
 
-/// A lazily compiled pattern, for the statics of the finders.
-pub(crate) type Pattern = LazyLock<Regex>;
+/// A lazily compiled pattern per Unicode version, for the statics of the finders whose pattern
+/// holds a character class.
+pub(crate) type Pattern = Versioned<Regex>;
+
+/// A lazily compiled pattern with no character class in it: the same under every version.
+pub(crate) type FixedPattern = LazyLock<Regex>;

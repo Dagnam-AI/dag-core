@@ -1,13 +1,12 @@
 //! IPv4 and IPv6 addresses: a candidate pattern, the standard parser, and the reference's rules
 //! for what is not personal data.
-use std::net::{IpAddr, Ipv6Addr};
-use std::sync::LazyLock;
-
 use regex::Regex;
+use std::net::{IpAddr, Ipv6Addr};
 
 use super::{Pattern, compile, group_span, scan};
-use crate::text::{
-    DIGIT_CLASS, SPACE_CLASS, WORD_CLASS, case_sensitive, char_before, is_py_digit, is_py_word,
+use crate::text::{case_sensitive, char_before};
+use crate::unicode::{
+    UnicodeVersion, Versioned, digit_class, is_py_digit, is_py_word, space_class, word_class,
 };
 
 /// How many characters before a candidate the version rule reads.
@@ -15,8 +14,8 @@ const WINDOW: usize = 32;
 
 /// `\d{1,3}` four times joined by dots, then a character that is not a word character or a
 /// dot, or a dot with no word character after it, or the end (`docs/patterns.md`, P22).
-static IPV4: Pattern = LazyLock::new(|| {
-    let (d, w) = (DIGIT_CLASS.as_str(), WORD_CLASS.as_str());
+static IPV4: Pattern = Versioned::new(|version| {
+    let (d, w) = (digit_class(version), word_class(version));
     compile(&format!(
         r"((?:{d}{{1,3}}\.){{3}}{d}{{1,3}})(?:\z|[^{w}.]|\.(?:\z|[^{w}]))"
     ))
@@ -25,8 +24,8 @@ static IPV4: Pattern = LazyLock::new(|| {
 /// Up to seven groups of hex digits and colons, then an IPv4 tail or one more group, then a
 /// character that is not a word character or a colon, or a dot with no word character after
 /// it, or the end (`docs/patterns.md`, P23).
-static IPV6: Pattern = LazyLock::new(|| {
-    let (d, w) = (DIGIT_CLASS.as_str(), WORD_CLASS.as_str());
+static IPV6: Pattern = Versioned::new(|version| {
+    let (d, w) = (digit_class(version), word_class(version));
     compile(&format!(
         r"((?:[0-9A-Fa-f]{{0,4}}:){{2,7}}(?:{d}{{1,3}}(?:\.{d}{{1,3}}){{3}}|[0-9A-Fa-f]{{0,4}}))(?:\z|[^{w}:.]|\.(?:\z|[^{w}]))"
     ))
@@ -38,8 +37,8 @@ static IPV6: Pattern = LazyLock::new(|| {
 /// not one: an address there is an address. Written for `(?i)` as `docs/patterns.md` P24
 /// has it: `i` also reads U+0130 and U+0131, and every word class is wrapped so the flag does
 /// not fold it (U+0345 would join); `\b` before `v` is the start or a non-word character.
-static VERSION_BEFORE: Pattern = LazyLock::new(|| {
-    let (s, w) = (SPACE_CLASS.as_str(), WORD_CLASS.as_str());
+static VERSION_BEFORE: Pattern = Versioned::new(|version| {
+    let (s, w) = (space_class(version), word_class(version));
     let word = case_sensitive(w);
     let not_word = case_sensitive(&format!("[^{w}]"));
     let i = r"[i\u{130}\u{131}]";
@@ -50,8 +49,8 @@ static VERSION_BEFORE: Pattern = LazyLock::new(|| {
 
 /// Whether the text just ahead of a candidate (`before`, one space standing for the start of
 /// the text) ends in a version's product or keyword.
-fn follows_a_version(before: &str) -> bool {
-    VERSION_BEFORE.is_match(before)
+fn follows_a_version(before: &str, version: UnicodeVersion) -> bool {
+    VERSION_BEFORE.get(version).is_match(before)
 }
 
 /// Whether `candidate`, found by the patterns, is a personal IP address; `before` is the text
@@ -63,8 +62,8 @@ fn follows_a_version(before: &str) -> bool {
 /// needs a digit and three groups or a hex letter: a slice (`a[1::2]`, `b[100::200]`) parses
 /// as IPv6 but is at most `start::step`, all decimal.
 #[must_use]
-pub fn is_ip_address(candidate: &str, before: &str) -> bool {
-    if !candidate.chars().any(is_py_digit) {
+pub fn is_ip_address(candidate: &str, before: &str, version: UnicodeVersion) -> bool {
+    if !candidate.chars().any(|c| is_py_digit(version, c)) {
         return false;
     }
     match candidate.parse::<IpAddr>() {
@@ -73,7 +72,7 @@ pub fn is_ip_address(candidate: &str, before: &str) -> bool {
             !(v4.is_loopback()
                 || v4.is_unspecified()
                 || candidate.ends_with(".0")
-                || follows_a_version(before))
+                || follows_a_version(before, version))
         }
         Ok(IpAddr::V6(v6)) => {
             !(is_loopback(v6) || is_unspecified(v6))
@@ -126,26 +125,33 @@ fn union(mut spans: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
 
 /// The candidates of `pattern` that are personal addresses and do not follow a word character
 /// or one of `refused`.
-fn addresses(pattern: &Regex, text: &str, refused: &[char]) -> Vec<(usize, usize)> {
+fn addresses(
+    pattern: &Regex,
+    text: &str,
+    refused: &[char],
+    version: UnicodeVersion,
+) -> Vec<(usize, usize)> {
     let candidates = scan(pattern, text, |start, caps| {
         group_span(caps, 1).filter(|_| {
-            !char_before(text, start).is_some_and(|c| is_py_word(c) || refused.contains(&c))
+            !char_before(text, start)
+                .is_some_and(|c| is_py_word(version, c) || refused.contains(&c))
         })
     });
     candidates
         .into_iter()
         .filter(|&(from, to)| {
-            text.get(from..to)
-                .is_some_and(|candidate| is_ip_address(candidate, &window_before(text, from)))
+            text.get(from..to).is_some_and(|candidate| {
+                is_ip_address(candidate, &window_before(text, from), version)
+            })
         })
         .collect()
 }
 
 /// IPv4 and IPv6 addresses, by [`is_ip_address`].
 #[must_use]
-pub fn find_ip_addresses(text: &str) -> Vec<(usize, usize)> {
-    let mut spans = addresses(&IPV4, text, &['.']);
-    spans.extend(addresses(&IPV6, text, &[':', '.']));
+pub fn find_ip_addresses(text: &str, version: UnicodeVersion) -> Vec<(usize, usize)> {
+    let mut spans = addresses(IPV4.get(version), text, &['.'], version);
+    spans.extend(addresses(IPV6.get(version), text, &[':', '.'], version));
     union(spans)
 }
 

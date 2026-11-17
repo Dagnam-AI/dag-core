@@ -251,6 +251,8 @@ jobs:
       # maturin and pytest. The compiler is forced to the pin because the crates declare
       # rust-version 1.99: a user needs one that new, and the test must not pass on an older one.
       - name: Build the sdist copy in a clean environment and run the tests
+        env:
+          DAGNAM_EXPECT_UNICODE: "15.0.0"
         run: |
           RUSTUP_TOOLCHAIN=$(awk -F'"' '/^channel/ {print $2}' rust-toolchain.toml)
           export RUSTUP_TOOLCHAIN
@@ -287,6 +289,7 @@ jobs:
           - { name: windows-x86_64, runner: windows-latest }
     env:
       PY: ${{ matrix.kind == 'ft' && '3.14t' || '3.12' }}
+      DAGNAM_EXPECT_UNICODE: ${{ matrix.kind == 'ft' && '16.0.0' || '15.0.0' }}
     defaults:
       run:
         shell: bash
@@ -314,6 +317,7 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then vpy="$PWD/.venv-smoke/Scripts/python.exe"; else vpy="$PWD/.venv-smoke/bin/python"; fi
           # From tests/, so the import is the installed wheel and not a source tree.
           (cd tests && "$vpy" -m pytest -q .)
+          "$vpy" scripts/gen_py_classes.py --check
           if [ "$PY" = 3.14t ]; then
             # The module must not switch the GIL back on at import.
             (cd tests && "$vpy" -W error -c 'import sys, dagnam_core._native; assert sys._is_gil_enabled() is False')
@@ -321,7 +325,7 @@ jobs:
       - name: Install the musllinux wheel in Alpine and run the tests
         if: ${{ matrix.platform.musl && matrix.kind == 'abi3' }}
         run: |
-          docker run --rm -v "$PWD/dist:/dist:ro" -v "$PWD/tests:/src-tests:ro" \
+          docker run --rm -e DAGNAM_EXPECT_UNICODE -v "$PWD/dist:/dist:ro" -v "$PWD/tests:/src-tests:ro" \
             -v "$PWD/.github/ci-requirements.txt:/req.txt:ro" \
             python:3.12-alpine@sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e732b8748e0d1f38f6dd89 sh -euc '
             cp -r /src-tests /tests && cd /tests
@@ -332,7 +336,7 @@ jobs:
       - name: Install the free-threaded musllinux wheel in Alpine and run the tests
         if: ${{ matrix.platform.musl && matrix.kind == 'ft' }}
         run: |
-          docker run --rm --entrypoint sh -v "$PWD/dist:/dist:ro" -v "$PWD/tests:/src-tests:ro" \
+          docker run --rm -e DAGNAM_EXPECT_UNICODE --entrypoint sh -v "$PWD/dist:/dist:ro" -v "$PWD/tests:/src-tests:ro" \
             -v "$PWD/.github/ci-requirements.txt:/req.txt:ro" \
             ghcr.io/astral-sh/uv:0.13.6-alpine@sha256:95f501aef734a5aaf167ff0640e02f215dcc7043ff48685de70328e5c55a57b0 -euc '
             cp -r /src-tests /tests && cd /tests
@@ -458,7 +462,8 @@ jobs:
           import dagnam_core
           from dagnam_core import hygiene
           assert dagnam_core.__version__ == sys.argv[1], dagnam_core.__version__
-          assert hygiene.CORE_API == 1
+          assert hygiene.CORE_API == 2
+          assert hygiene.UNICODE_SUPPORTED
           assert hygiene.findings("mail a@b.co now") == [(5, 11, "PII_EMAIL")]
           ' "${GITHUB_REF_NAME#core/v}"
 

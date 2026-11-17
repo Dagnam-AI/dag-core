@@ -1,5 +1,5 @@
 //! The window rules of the scan, shown on detectors made to show them.
-use super::tests::view;
+use super::tests::{VERSION, view};
 use super::*;
 
 // --- the window rules, on detectors made to show them
@@ -44,13 +44,13 @@ pub(super) static LOOKS: [Detector; 2] = [
         code: "PII_A",
         loose: false,
         placeholder: None,
-        find: |text| literal(text, "AAAA"),
+        find: |text, _| literal(text, "AAAA"),
     },
     Detector {
         code: "PII_B",
         loose: false,
         placeholder: None,
-        find: |text| runs(text, 'b', 'A', ""),
+        find: |text, _| runs(text, 'b', 'A', ""),
     },
 ];
 /// As `LOOKS`, but a run of `b` is refused when `zz` follows it: a guard two characters long.
@@ -59,13 +59,13 @@ static GUARDED: [Detector; 2] = [
         code: "PII_A",
         loose: false,
         placeholder: None,
-        find: |text| literal(text, "AAAA"),
+        find: |text, _| literal(text, "AAAA"),
     },
     Detector {
         code: "PII_B",
         loose: false,
         placeholder: None,
-        find: |text| runs(text, 'b', 'A', "zz"),
+        find: |text, _| runs(text, 'b', 'A', "zz"),
     },
 ];
 /// As `LOOKS`, with runs of a two-byte character.
@@ -74,13 +74,13 @@ static WIDE: [Detector; 2] = [
         code: "PII_A",
         loose: false,
         placeholder: None,
-        find: |text| literal(text, "AAAA"),
+        find: |text, _| literal(text, "AAAA"),
     },
     Detector {
         code: "PII_B",
         loose: false,
         placeholder: None,
-        find: |text| runs(text, 'é', 'A', ""),
+        find: |text, _| runs(text, 'é', 'A', ""),
     },
 ];
 
@@ -91,19 +91,19 @@ static TOUCHING: [Detector; 3] = [
         code: "PII_A",
         loose: false,
         placeholder: None,
-        find: |text| literal(text, "AAAA"),
+        find: |text, _| literal(text, "AAAA"),
     },
     Detector {
         code: "PII_B",
         loose: false,
         placeholder: None,
-        find: |text| runs(text, 'b', 'A', ""),
+        find: |text, _| runs(text, 'b', 'A', ""),
     },
     Detector {
         code: "PII_C",
         loose: false,
         placeholder: None,
-        find: |text| runs(text, 'c', '\0', "zz"),
+        find: |text, _| runs(text, 'c', '\0', "zz"),
     },
 ];
 
@@ -123,31 +123,31 @@ static KEYWORDS: [Detector; 4] = [
         code: "PII_A",
         loose: false,
         placeholder: None,
-        find: |text| literal(text, "AAAA"),
+        find: |text, _| literal(text, "AAAA"),
     },
     Detector {
         code: "PII_B",
         loose: false,
         placeholder: None,
-        find: |text| runs(text, 'b', 'A', ""),
+        find: |text, _| runs(text, 'b', 'A', ""),
     },
     Detector {
         code: "PII_D",
         loose: false,
         placeholder: None,
-        find: |text| runs(text, 'd', '\0', "e"),
+        find: |text, _| runs(text, 'd', '\0', "e"),
     },
     Detector {
         code: "PII_E",
         loose: false,
         placeholder: None,
-        find: |text| after_no_keyword(text, 'e', "AAAA", 16),
+        find: |text, _| after_no_keyword(text, 'e', "AAAA", 16),
     },
 ];
 
 /// The findings of `text`, with offsets in bytes, and how many windows it took.
 fn scan(detectors: &'static [Detector], text: &str) -> (Vec<(usize, usize, &'static str)>, usize) {
-    let mut scan = Scan::new(detectors, text);
+    let mut scan = Scan::new(detectors, text, VERSION);
     let mut found = scan.run();
     found.sort_by_key(|c| c.start);
     (view(&found), scan.windows)
@@ -167,7 +167,10 @@ fn a_finding_hidden_by_its_neighbour_is_found_once_the_neighbour_is_cut() {
     let (found, _) = scan(&LOOKS, "AAAAbbbb");
     assert_eq!(found, [(0, 4, "PII_A"), (4, 8, "PII_B")]);
     // The whole-piece read alone does not see it.
-    assert_eq!(view(&detect(&LOOKS, "AAAAbbbb")), [(0, 4, "PII_A")]);
+    assert_eq!(
+        view(&detect(&LOOKS, "AAAAbbbb", VERSION)),
+        [(0, 4, "PII_A")]
+    );
 }
 
 #[test]
@@ -180,7 +183,7 @@ fn text_after_a_finding_without_a_letter_digit_or_at_sign_is_not_read_again() {
 #[test]
 fn a_candidate_that_ends_inside_the_margin_of_the_edge_doubles_the_window() {
     let text = format!("AAAA{}", "b".repeat(5 * WINDOW));
-    let mut scan = Scan::new(&LOOKS, &text);
+    let mut scan = Scan::new(&LOOKS, &text, VERSION);
     let found = scan.run();
     assert_eq!(
         view(&found),
@@ -245,7 +248,7 @@ fn the_text_between_two_regions_of_a_window_is_read_again_without_its_right_neig
             (11, 13, "PII_E")
         ]
     );
-    assert_eq!(view(&detect(&KEYWORDS, text)), [(0, 4, "PII_A")]);
+    assert_eq!(view(&detect(&KEYWORDS, text, VERSION)), [(0, 4, "PII_A")]);
 }
 
 #[test]
@@ -262,7 +265,7 @@ fn the_rest_of_a_piece_is_read_whole_when_its_window_holds_nothing() {
     // after `AAAA` holds only `x` and stops short of the piece's end, so it cannot say there is
     // nothing further on: the rest of the piece is read whole, which finds `dd` once `e` is cut.
     let text = format!("AAAA{}dde", "x".repeat(60));
-    let mut scan = Scan::new(&KEYWORDS, &text);
+    let mut scan = Scan::new(&KEYWORDS, &text, VERSION);
     let mut found = scan.run();
     found.sort_by_key(|c| c.start);
     assert_eq!(

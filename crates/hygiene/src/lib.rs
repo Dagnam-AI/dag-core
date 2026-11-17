@@ -9,6 +9,7 @@ mod minhash;
 mod spans;
 mod table;
 mod text;
+mod unicode;
 
 pub use cluster::{BANDS, Pair, SHINGLE_SIZE, near_duplicates};
 pub use contact::{find_emails, find_phones};
@@ -20,9 +21,9 @@ pub use detectors::{
 };
 pub use minhash::{NUM_PERMUTATIONS, minhash_signature};
 pub use spans::findings;
-pub use text::{
-    DIGIT_CLASS, SPACE_CLASS, WORD_CLASS, case_sensitive, char_at, char_before, is_py_digit,
-    is_py_space, is_py_word, to_char_offsets,
+pub use text::{case_sensitive, char_at, char_before, to_char_offsets};
+pub use unicode::{
+    UnicodeVersion, digit_class, is_py_digit, is_py_space, is_py_word, space_class, word_class,
 };
 
 /// The binding contract version, bumped whenever a binding changes meaning.
@@ -31,5 +32,5 @@ pub use text::{
 /// stage of the gate measures something; the Python module exports it as `CORE_API`.
 #[must_use]
 pub const fn core_api() -> u32 {
-    1
+    2
 }

@@ -6,9 +6,43 @@
 //! threshold was refused for), a value of the wrong type is reported by `PyO3` by type name, and
 //! a string that is not UTF-8 raises a `UnicodeEncodeError` whose `object` is empty (`PyO3`'s
 //! own would hold the whole input, and so would anything that prints or stores the exception).
-use pyo3::exceptions::PyUnicodeEncodeError;
+//!
+//! Python's `\w`, `\d` and `\s` follow the Unicode database of the interpreter, so the module
+//! reads `unicodedata.unidata_version` once, when it is imported, and every binding classifies
+//! under the tables of that version. An interpreter whose version the core has no tables for
+//! (see `dagnam_hygiene::UnicodeVersion`) still imports the module, reports it through
+//! `UNICODE_SUPPORTED`, and refuses every binding with a `RuntimeError`.
+use std::sync::OnceLock;
+
+use dagnam_hygiene::UnicodeVersion;
+use pyo3::exceptions::{PyRuntimeError, PyUnicodeEncodeError};
 use pyo3::prelude::*;
 use pyo3::types::PyString;
+
+/// What the importing interpreter's Unicode database selected.
+enum Selection {
+    /// A version the core ships tables for.
+    Supported(UnicodeVersion),
+    /// Any other version, as the interpreter spells it.
+    Unsupported(String),
+}
+
+/// Set once, by the module's init.
+static SELECTION: OnceLock<Selection> = OnceLock::new();
+
+/// The version to classify under, or a `RuntimeError` that names the interpreter's version (the
+/// message never holds any input text).
+fn version() -> PyResult<UnicodeVersion> {
+    match SELECTION.get() {
+        Some(Selection::Supported(version)) => Ok(*version),
+        Some(Selection::Unsupported(unidata)) => Err(PyRuntimeError::new_err(format!(
+            "dagnam-core has no character tables for Unicode {unidata}"
+        ))),
+        None => Err(PyRuntimeError::new_err(
+            "dagnam-core was not initialised by its module",
+        )),
+    }
+}
 
 /// The text of a Python `str`, owned; a lone surrogate raises a `UnicodeEncodeError` without the text.
 fn utf8(text: &Bound<'_, PyString>) -> PyResult<String> {
@@ -22,13 +56,31 @@ fn utf8(text: &Bound<'_, PyString>) -> PyResult<String> {
 mod _native {
     use pyo3::exceptions::{PyTypeError, PyValueError};
     use pyo3::prelude::*;
-    use pyo3::types::{PyString, PyTuple};
+    use pyo3::types::{PyModule, PyString, PyTuple};
 
-    use super::utf8;
+    use super::{SELECTION, Selection, UnicodeVersion, utf8, version};
 
     /// Bumped when any binding changes meaning; the Python caller compares it with the value it was written against.
     #[pymodule_export]
     const CORE_API: u32 = dagnam_hygiene::core_api();
+
+    /// Reads the interpreter's Unicode version and selects the tables for it.
+    #[pymodule_init]
+    fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
+        let unidata: String = module
+            .py()
+            .import("unicodedata")?
+            .getattr("unidata_version")?
+            .extract()?;
+        let selected = UnicodeVersion::from_unidata(&unidata);
+        module.add("UNICODE_SUPPORTED", selected.is_some())?;
+        module.add("UNICODE_VERSION", unidata.as_str())?;
+        // The first selection stays: a process has one Unicode database, so a later init (the
+        // module imported again) keeps the first answer.
+        let _ =
+            SELECTION.set(selected.map_or(Selection::Unsupported(unidata), Selection::Supported));
+        Ok(())
+    }
 
     /// Every PII finding in `text`, sorted by start, as `(start, end, class code)` in code points.
     #[pyfunction]
@@ -36,8 +88,9 @@ mod _native {
         py: Python<'_>,
         text: &Bound<'_, PyString>,
     ) -> PyResult<Vec<(usize, usize, &'static str)>> {
+        let version = version()?;
         let text = utf8(text)?;
-        Ok(py.detach(move || dagnam_hygiene::findings(&text)))
+        Ok(py.detach(move || dagnam_hygiene::findings(&text, version)))
     }
 
     /// The 128-value `MinHash` signature of the shingles (any iterable of `str`); every value is
@@ -47,6 +100,8 @@ mod _native {
         py: Python<'py>,
         shingles: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyTuple>> {
+        // Near-duplicate detection reads no character class, but the package is one contract.
+        version()?;
         // Iterating a `str` would hand out its characters: almost certainly a bug, never a signature.
         if shingles.is_instance_of::<PyString>() {
             return Err(PyTypeError::new_err(
@@ -70,6 +125,7 @@ mod _native {
         texts: &Bound<'_, PyAny>,
         threshold: &Bound<'_, PyAny>,
     ) -> PyResult<(Vec<usize>, Vec<dagnam_hygiene::Pair>)> {
+        version()?;
         // The reference's own check, on the caller's own object and before any text is read; the
         // message is the f-string's `{threshold}`, so an int reads `0`, not `0.0`.
         let refused = || -> PyResult<PyErr> {
