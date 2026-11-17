@@ -1,6 +1,6 @@
 //! What a batch costs in memory: a refused batch next to nothing, the walk without holding the
 //! candidate pairs, and the result in the memory it needs and no more. Measured on the test
-//! binary's own allocator (`guard`), one process per test.
+//! binary's own allocator (`guard`), on the thread that makes the call.
 use dagnam_hygiene::{
     Limits, MAX_TEXT_CHARS, MAX_TEXTS, MAX_TOTAL_CHARS, near_duplicates, near_duplicates_within,
 };

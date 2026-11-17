@@ -23,12 +23,13 @@ thread_local! {
 /// Starts a measurement on this thread. Read it with `high_water`. The mark is the thread's own,
 /// so another test running on another thread of the same process (`cargo test` runs tests as
 /// threads of one) does not count; a measured call that spawns threads would not count their heap.
-pub(crate) fn reset_high_water() {
+pub fn reset_high_water() {
     MINE.set((0, 0));
 }
 
 /// The most heap bytes this thread has had live at once beyond what was live at `reset_high_water`.
-pub(crate) fn high_water() -> usize {
+#[must_use]
+pub fn high_water() -> usize {
     usize::try_from(MINE.get().1).unwrap_or(0)
 }
 
@@ -40,7 +41,7 @@ fn track(delta: isize) {
 }
 
 /// The system allocator with a cap.
-pub(crate) struct Capped;
+pub struct Capped;
 
 /// Stops the process. Reporting may allocate (the first use of stderr names the thread), so the
 /// total is cleared first: left over the cap, that allocation would trip again and recurse until
@@ -86,11 +87,17 @@ unsafe impl GlobalAlloc for Capped {
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         if new_size >= layout.size() {
-            grow(new_size - layout.size());
+            // Growing may copy: the old block and the new one are both live at that instant, which
+            // is what a vector that grows by doubling costs, so both count until it is done.
+            grow(new_size);
+            let moved = unsafe { System.realloc(ptr, layout, new_size) };
+            LIVE.fetch_sub(layout.size(), Ordering::Relaxed);
+            track(-signed(layout.size()));
+            moved
         } else {
             LIVE.fetch_sub(layout.size() - new_size, Ordering::Relaxed);
             track(-signed(layout.size() - new_size));
+            unsafe { System.realloc(ptr, layout, new_size) }
         }
-        unsafe { System.realloc(ptr, layout, new_size) }
     }
 }

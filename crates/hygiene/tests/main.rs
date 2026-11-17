@@ -15,7 +15,7 @@ use serde::de::DeserializeOwned;
 mod contact;
 mod credentials;
 mod detectors;
-mod guard;
+pub mod guard;
 mod near_dedup;
 mod reference;
 mod spans;

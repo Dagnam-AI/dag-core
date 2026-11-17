@@ -156,6 +156,12 @@ mod tests {
             .collect()
     }
 
+    /// At most `most` of the pairs: a test never reads an iterator to its end, so one that does
+    /// not end cannot grow without bound.
+    fn first(pairs: Candidates, most: usize) -> Vec<(usize, usize)> {
+        pairs.take(most).collect()
+    }
+
     fn signatures_of(texts: &[&str]) -> Vec<Signature> {
         texts.iter().map(|text| sign(text)).collect()
     }
@@ -178,7 +184,9 @@ mod tests {
         let expected = sharing_a_band(&signatures);
         assert!(expected.contains(&(0, 1)) && expected.contains(&(4, 5)));
         assert!(!expected.contains(&(0, 3)));
-        let streamed: Vec<(usize, usize)> = Candidates::new(&signatures).collect();
+        // Taken a few past the expected number: an iterator that never ends (a mutant that stops
+        // advancing) fails the comparison at once instead of filling the heap.
+        let streamed = first(Candidates::new(&signatures), expected.len() + 4);
         // Ascending is the order of a sorted set; no pair twice.
         assert_eq!(streamed, expected.into_iter().collect::<Vec<_>>());
     }
@@ -186,13 +194,15 @@ mod tests {
     #[test]
     fn a_pair_that_shares_many_bands_is_one_candidate() {
         let signatures = signatures_of(&["x y z w", "x y z w", "x y z w"]);
-        let streamed: Vec<(usize, usize)> = Candidates::new(&signatures).collect();
-        assert_eq!(streamed, [(0, 1), (0, 2), (1, 2)]);
+        assert_eq!(
+            first(Candidates::new(&signatures), 7),
+            [(0, 1), (0, 2), (1, 2)]
+        );
     }
 
     #[test]
     fn no_texts_and_one_text_have_no_candidates() {
-        assert_eq!(Candidates::new(&[]).count(), 0);
-        assert_eq!(Candidates::new(&signatures_of(&["a b c"])).count(), 0);
+        assert_eq!(first(Candidates::new(&[]), 4), []);
+        assert_eq!(first(Candidates::new(&signatures_of(&["a b c"])), 4), []);
     }
 }
