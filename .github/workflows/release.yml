@@ -1,0 +1,375 @@
+name: Release dagnam-core to PyPI
+
+# A release is the tag `core/vX.Y.Z` on a commit that is on `main` (RELEASE.md). The same workflow
+# can be run by hand (`workflow_dispatch`): with `publish` left false it builds every wheel and the
+# sdist, installs each into a clean environment on its own platform and runs `tests/`, and does
+# nothing else. That is how the build matrix is proved without publishing.
+on:
+  push:
+    tags:
+      - "core/v*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Also run the tag checks, attest and publish (needs a core/v* tag as the ref)"
+        type: boolean
+        default: false
+
+# Guard against double-tag races. cancel-in-progress=false because once a build starts uploading
+# to PyPI it must finish: PyPI rejects re-uploads of the same version, so a cancellation would
+# leave a half-released state.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Nothing is inherited: every job below states what it needs.
+permissions: {}
+
+env:
+  # The maturin that builds the wheels in the matrix (the sdist job and pyproject.toml's
+  # build-system take any 1.x from PyPI: maturin>=1.13,<2).
+  MATURIN_VERSION: v1.15.0
+
+jobs:
+  # Only a real release (a tag push, or a dispatch that asks to publish) runs these checks. A plain
+  # dispatch is a rehearsal on a branch: its ref is not a tag, so the checks would fail it by
+  # design, and nothing it builds is published. Everything that attests or publishes needs this
+  # job, so skipping it skips them too.
+  check:
+    name: Tag, version, changelog and CI agree
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the ancestry check below needs main's history
+          persist-credentials: false
+      # This stops an ACCIDENTAL tag on an unmerged branch; it does not stop a malicious one,
+      # because the check is part of the tagged commit's own workflow file. That is what the tag
+      # ruleset and the `pypi` environment's required reviewer are for (RELEASE.md).
+      - name: Assert the tagged commit is on main
+        run: |
+          git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::$(git rev-parse HEAD) (ref $GITHUB_REF_NAME) is not an ancestor of origin/main; release only commits that are on main"
+            exit 1
+          fi
+      - name: Assert the tag, pyproject.toml and CHANGELOG.md name one version
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          if [ "$GITHUB_REF_NAME" != "core/v$version" ]; then
+            echo "::error::the ref is $GITHUB_REF_NAME but pyproject.toml says version $version (want core/v$version)"
+            exit 1
+          fi
+          if ! grep -Eq "^## \[?${version//./\\.}\]?( |$)" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## $version' heading"
+            exit 1
+          fi
+      # PyPI takes no version back, so a tag publishes only a commit whose own CI (the `gate` job
+      # of ci.yml, run when it landed on main) is green. A tag pushed while that run is still going
+      # fails here: re-run this workflow once CI is green.
+      - name: Assert CI is green on the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          conclusion=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=gate&filter=latest" --jq '.check_runs[0].conclusion // "missing"')
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::the gate job of CI on $GITHUB_SHA is '$conclusion', not 'success'"
+            exit 1
+          fi
+
+  # Every wheel is built here and installed and tested in `test` below, because a cross-built
+  # wheel (Linux aarch64) cannot run on the machine that built it. `abi3` is one wheel per
+  # platform for CPython 3.12 and later; `ft` is the free-threaded wheel, built against 3.14t.
+  # PyO3 ignores its abi3 feature on a free-threaded interpreter, so the `ft` wheel is
+  # version-specific (cp314-cp314t), not abi3.
+  build:
+    name: Build ${{ matrix.platform.name }} ${{ matrix.kind }}
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        kind: [abi3, ft]
+        platform:
+          - { name: linux-x86_64-gnu, runner: ubuntu-latest, target: x86_64-unknown-linux-gnu, manylinux: "2_28" }
+          - { name: linux-aarch64-gnu, runner: ubuntu-latest, target: aarch64-unknown-linux-gnu, manylinux: "2_28" }
+          - { name: linux-x86_64-musl, runner: ubuntu-latest, target: x86_64-unknown-linux-musl, manylinux: musllinux_1_2 }
+          - { name: linux-aarch64-musl, runner: ubuntu-latest, target: aarch64-unknown-linux-musl, manylinux: musllinux_1_2 }
+          - { name: macos-x86_64, runner: macos-15-intel, target: x86_64-apple-darwin }
+          - { name: macos-aarch64, runner: macos-15, target: aarch64-apple-darwin }
+          - { name: windows-x86_64, runner: windows-latest, target: x86_64-pc-windows-msvc }
+    env:
+      PY: ${{ matrix.kind == 'ft' && '3.14t' || '3.12' }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          # This job's output is published: no restorable cache as an input.
+          enable-cache: false
+      # The toolchain is the one rust-toolchain.toml pins, so the release builds with the compiler
+      # the gate tested.
+      - name: Read the pinned Rust toolchain
+        id: rust
+        run: |
+          channel=$(awk -F'"' '/^channel/ {print $2}' rust-toolchain.toml)
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+      # Linux builds run in a manylinux/musllinux container that ships every CPython under
+      # /opt/python; elsewhere uv installs the interpreter the wheel is built against.
+      - name: Pick the interpreter
+        id: interp
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            if [ "$PY" = 3.14t ]; then path=/opt/python/cp314-cp314t/bin/python3.14t; else path=/opt/python/cp312-cp312/bin/python3.12; fi
+          else
+            uv python install "$PY"
+            path=$(uv python find "$PY")
+            path=${path//\\//} # forward slashes: the action splits its args like a shell
+          fi
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+      - name: Build the wheel
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          maturin-version: ${{ env.MATURIN_VERSION }}
+          target: ${{ matrix.platform.target }}
+          manylinux: ${{ matrix.platform.manylinux }}
+          rust-toolchain: ${{ steps.rust.outputs.channel }}
+          args: --release --locked --out dist -i ${{ steps.interp.outputs.path }}
+      - name: Check the wheel is the kind this row asked for
+        run: |
+          ls -l dist
+          if [ "$PY" = 3.14t ]; then pattern='-cp314-cp314t-'; else pattern='-cp312-abi3-'; fi
+          wheels=(dist/*"$pattern"*.whl)
+          test "${#wheels[@]}" = 1 && test "$(find dist -name '*.whl' | wc -l)" -eq 1 \
+            || { echo "::error::want exactly one $pattern wheel in dist/"; exit 1; }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-${{ matrix.platform.name }}-${{ matrix.kind }}
+          path: dist/
+          if-no-files-found: error
+
+  sdist:
+    name: Build the sdist and build it from source
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: false
+      - name: Build the sdist
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          maturin-version: ${{ env.MATURIN_VERSION }}
+          command: sdist
+          args: --out dist
+      # What a user without a wheel for their platform gets: pip builds the sdist, so the
+      # pinned compiler must be on the machine, and the tests run against what that built.
+      - name: Install the sdist into a clean environment and run the tests
+        run: |
+          RUSTUP_TOOLCHAIN=$(awk -F'"' '/^channel/ {print $2}' rust-toolchain.toml)
+          export RUSTUP_TOOLCHAIN
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+          uv venv --python 3.12 .venv-smoke
+          uv pip install --python .venv-smoke dist/*.tar.gz "pytest>=9,<10"
+          cd tests && ../.venv-smoke/bin/python -m pytest -q .
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-sdist
+          path: dist/
+          if-no-files-found: error
+
+  # Each wheel on a machine of its own platform, in a clean environment holding only the wheel
+  # and pytest, running tests/ from outside the source tree. Linux aarch64 runs on a native arm64
+  # runner (no emulation); the musllinux wheels run inside an Alpine container on that same runner.
+  test:
+    name: Test ${{ matrix.platform.name }} ${{ matrix.kind }}
+    needs: build
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        kind: [abi3, ft]
+        platform:
+          - { name: linux-x86_64-gnu, runner: ubuntu-latest }
+          - { name: linux-aarch64-gnu, runner: ubuntu-24.04-arm }
+          - { name: linux-x86_64-musl, runner: ubuntu-latest, musl: true }
+          - { name: linux-aarch64-musl, runner: ubuntu-24.04-arm, musl: true }
+          - { name: macos-x86_64, runner: macos-15-intel }
+          - { name: macos-aarch64, runner: macos-15 }
+          - { name: windows-x86_64, runner: windows-latest }
+    env:
+      PY: ${{ matrix.kind == 'ft' && '3.14t' || '3.12' }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist-${{ matrix.platform.name }}-${{ matrix.kind }}
+          path: dist/
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: false
+      - name: Install the wheel into a clean environment and run the tests
+        if: ${{ !matrix.platform.musl }}
+        run: |
+          uv python install "$PY"
+          uv venv --python "$PY" .venv-smoke
+          uv pip install --python .venv-smoke dist/*.whl "pytest>=9,<10"
+          if [ "$RUNNER_OS" = Windows ]; then vpy=../.venv-smoke/Scripts/python.exe; else vpy=../.venv-smoke/bin/python; fi
+          # From tests/, so the import is the installed wheel and not a source tree.
+          (cd tests && "$vpy" -m pytest -q .)
+          if [ "$PY" = 3.14t ]; then
+            # The module must not switch the GIL back on at import.
+            (cd tests && "$vpy" -W error -c 'import sys, dagnam_core._native; assert sys._is_gil_enabled() is False')
+          fi
+      # Official Python image for the abi3 wheel; the free-threaded Python is uv's, in uv's image.
+      - name: Install the musllinux wheel in Alpine and run the tests
+        if: ${{ matrix.platform.musl && matrix.kind == 'abi3' }}
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" -v "$PWD/tests:/src-tests:ro" python:3.12-alpine sh -euc '
+            cp -r /src-tests /tests && cd /tests
+            python -m venv /tmp/venv
+            /tmp/venv/bin/pip install --quiet /dist/*.whl "pytest>=9,<10"
+            /tmp/venv/bin/python -m pytest -q -p no:cacheprovider .'
+      - name: Install the free-threaded musllinux wheel in Alpine and run the tests
+        if: ${{ matrix.platform.musl && matrix.kind == 'ft' }}
+        run: |
+          docker run --rm --entrypoint sh -v "$PWD/dist:/dist:ro" -v "$PWD/tests:/src-tests:ro" ghcr.io/astral-sh/uv:alpine -euc '
+            cp -r /src-tests /tests && cd /tests
+            uv venv --python 3.14t /tmp/venv
+            uv pip install --python /tmp/venv /dist/*.whl "pytest>=9,<10"
+            /tmp/venv/bin/python -m pytest -q -p no:cacheprovider .
+            /tmp/venv/bin/python -W error -c "import sys, dagnam_core._native; assert sys._is_gil_enabled() is False"'
+
+  # Attests exactly the files that were built and tested, in a job that runs nothing but the two
+  # pinned actions below, so no build tool can reach its OIDC token.
+  attest:
+    name: Attest build provenance
+    needs: [check, test, sdist]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist/
+      - name: Generate build provenance attestation
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: "dist/*"
+
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: attest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/dagnam-core
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          # TestPyPI is the rehearsal: a re-run after a later job failed must not die on the
+          # files that already went up.
+          skip-existing: true
+
+  smoke-testpypi:
+    name: Install from TestPyPI and run it
+    needs: publish-testpypi
+    runs-on: ubuntu-latest
+    # The install step alone waits up to 15 minutes for TestPyPI's index.
+    timeout-minutes: 25
+    permissions: {}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: false
+      - name: Install from TestPyPI
+        run: |
+          version="${GITHUB_REF_NAME#core/v}"
+          uv venv --python 3.12 "$RUNNER_TEMP/smoke"
+          # TestPyPI's simple index lags its own upload; wait up to 15 minutes, and FAIL here
+          # rather than let the next step import an absent package.
+          installed=0
+          for i in $(seq 1 15); do
+            # No dependencies, so nothing is taken from the real index: a squatted higher version
+            # of the name there could otherwise win a tie against this one.
+            if uv pip install --python "$RUNNER_TEMP/smoke" --no-deps --refresh \
+              --index-url https://test.pypi.org/simple/ "dagnam-core==$version"; then installed=1; break; fi
+            echo "Waiting for TestPyPI indexing ($i/15)..."
+            sleep 60
+          done
+          test "$installed" = 1 || { echo "::error::dagnam-core $version never appeared on TestPyPI"; exit 1; }
+      - name: Run what was installed
+        run: |
+          "$RUNNER_TEMP/smoke/bin/python" -c '
+          import sys
+          import dagnam_core
+          from dagnam_core import hygiene
+          assert dagnam_core.__version__ == sys.argv[1], dagnam_core.__version__
+          assert hygiene.CORE_API == 1
+          assert hygiene.findings("mail a@b.co now") == [(5, 11, "PII_EMAIL")]
+          ' "${GITHUB_REF_NAME#core/v}"
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: smoke-testpypi
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/p/dagnam-core
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3

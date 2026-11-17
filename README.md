@@ -1,8 +1,14 @@
 # dag-core
 
 Compiled core for the Dagnam.AI libraries: a Cargo workspace plus a maturin/PyO3 Python
-package, `dagnam-core`. It is an internal dependency; install `dagnam-contracts` or `dagnam`
-instead of importing it directly.
+package, `dagnam-core`. It is an internal dependency: install `dagnam-contracts` or `dagnam`
+instead of importing it directly, and expect its API to change without notice.
+
+Wheels are published for Linux (x86_64 and aarch64; glibc 2.28 and later, and musl 1.2),
+macOS (x86_64 and arm64) and Windows (x86_64). Each platform has one `abi3` wheel for CPython
+3.12 and later, plus a free-threaded wheel for CPython 3.14t (version-specific, not `abi3`);
+other platforms build the sdist and need a Rust toolchain. Releases: [RELEASE.md](RELEASE.md),
+[CHANGELOG.md](CHANGELOG.md).
 
 - `crates/hygiene` (`dagnam-hygiene`): pure Rust data-hygiene primitives, no Python.
 - `crates/py` (`dagnam-core-py`): the PyO3 bindings, the only crate that names Python.
