@@ -7,14 +7,15 @@ version. The Rust predicates and regex classes are built from these files alone 
 ships are the ones CPython 3.12 (15.0.0), 3.13 (15.1.0) and 3.14 (16.0.0, free-threaded 3.14t
 too) carry, so each file is written by the interpreter that has it:
 
-    uv run --python 3.12 scripts/gen_py_classes.py          # write its file and its corpus line
+    uv run --python 3.12 scripts/gen_py_classes.py          # write its table file only
     uv run --python 3.12 scripts/gen_py_classes.py --check  # fail unless both are what it writes
     uv run --python 3.12 scripts/gen_py_classes.py --jsonl  # print its ``classes.jsonl`` line
 
 It refuses an interpreter whose Unicode database is not one of the three, and checks every code
 point against the definitions in ``docs/patterns-semantics.md`` (``str.isalnum()`` or ``_``,
-``str.isspace()``, category ``Nd``) before writing anything. ``corpus/classes.jsonl`` holds one
-line per version, ascending, written by ``--jsonl``.
+``str.isspace()``, category ``Nd``) before writing anything. A plain run writes only the table
+file; ``corpus/classes.jsonl`` holds one line per version, ascending, and is rebuilt by hand from
+``--jsonl`` (``--check`` verifies that the interpreter's line is in it).
 """
 
 from __future__ import annotations

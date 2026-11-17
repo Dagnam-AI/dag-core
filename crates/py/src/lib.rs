@@ -75,7 +75,8 @@ mod _native {
         let selected = UnicodeVersion::from_unidata(&unidata);
         module.add("UNICODE_SUPPORTED", selected.is_some())?;
         module.add("UNICODE_VERSION", unidata.as_str())?;
-        // A second init in the same process (a sub-interpreter) reads the same database.
+        // The first selection stays: a process has one Unicode database, so a later init (the
+        // module imported again) keeps the first answer.
         let _ =
             SELECTION.set(selected.map_or(Selection::Unsupported(unidata), Selection::Supported));
         Ok(())

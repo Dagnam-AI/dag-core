@@ -22,7 +22,8 @@ Python's `re` does: the core ships the tables of Unicode 15.0.0, 15.1.0 and 16.0
 3.13, 3.14 and 3.14t) and selects the one matching `unicodedata.unidata_version` at import.
 `hygiene.UNICODE_VERSION` is that version and `hygiene.UNICODE_SUPPORTED` says whether the core has
 its tables; on an interpreter it does not, the three functions raise `RuntimeError` and the caller
-uses the pure-Python reference (see [docs/divergences.md](docs/divergences.md)).
+uses the pure-Python reference (see [docs/divergences.md](docs/divergences.md)). A process that
+replaces `unicodedata` with another module before importing the package is unsupported.
 
 ## Gate
 

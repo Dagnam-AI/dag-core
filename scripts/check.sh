@@ -60,12 +60,15 @@ fi
 
 shellcheck scripts/*.sh
 
-# scripts/gen_py_classes.py is linted and type-checked here, but its `--check` (the table is what
-# the pinned interpreter writes) is not run: this venv is Python 3.12 (Unicode 15.0) and the script
-# refuses any interpreter that is not the reference's (3.13, Unicode 15.1). The Rust tests compare
-# the table with corpus/classes.jsonl instead.
+# scripts/gen_py_classes.py is linted and type-checked here, and its `--check` runs under this
+# venv's interpreter, Python 3.12 (Unicode 15.0): the 15.0 table and its corpus/classes.jsonl line
+# are what that interpreter writes. The 15.1 and 16.0 tables need 3.13 and 3.14, which the gate
+# does not fetch (it must work offline); CI's wheel job runs `--check` under 3.12, 3.13 and 3.14,
+# and the release workflow under 3.12 and 3.14t. The Rust tests compare every table with
+# corpus/classes.jsonl on every code point in all cases.
 .venv-gate/bin/ruff check python tests scripts
 .venv-gate/bin/ruff format --check python tests scripts
+.venv-gate/bin/python scripts/gen_py_classes.py --check
 rm -rf target/wheels
 .venv-gate/bin/maturin build --locked --release --out target/wheels
 uv pip install --python .venv-gate --force-reinstall target/wheels/dagnam_core-*.whl

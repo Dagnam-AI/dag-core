@@ -14,7 +14,9 @@ All notable changes to `dagnam-core` are listed here, newest first. The version 
   (whether the core has its tables). On an interpreter with another Unicode version `findings`,
   `minhash_signature` and `near_duplicates` raise `RuntimeError("dagnam-core has no character
   tables for Unicode X.Y.Z")` instead of answering under the wrong tables.
-- `hygiene.CORE_API` is 2 (was 1): the functions now carry that precondition.
+- `hygiene.CORE_API` is 2 (was 1): the functions now carry that precondition. A process that replaces
+  `unicodedata` with another module before importing the package is unsupported: the package trusts
+  `unicodedata.unidata_version` as the interpreter's own.
 - Rust: `dagnam_hygiene::UnicodeVersion` (`V15_0`, `V15_1`, `V16_0`); every finder, `findings`,
   `luhn_ok`, `verhoeff_ok`, `iban_mod97_ok` and `is_ip_address` take the version, the predicates
   and class spellings are `is_py_word(version, c)` and `word_class(version)` (the `*_CLASS`

@@ -22,9 +22,10 @@ database is none of the three, and writes `crates/hygiene/data/py_classes_<major
 `[digit]` section of inclusive hex ranges (`lo-hi`, lowercase, many to a line, so the 500-line cap
 holds). `scripts/gen_py_classes.py --check`, run under each of the interpreters (`uv run --python
 3.12|3.13|3.14|3.14t`), fails when its file, or its line of `corpus/classes.jsonl`, is not what
-the interpreter writes. The gate's venv is 3.12, which can check only the 15.0.0 table; the
-others run in CI's wheel legs and by hand. A table is added when a new CPython brings a new
-Unicode version.
+the interpreter writes. The gate (`scripts/check.sh`) runs it under its 3.12 venv, so it checks the
+15.0.0 table; it does not fetch 3.13 or 3.14 (it must work offline). CI's wheel job runs it under
+3.12, 3.13 and 3.14, and the release workflow under 3.12 and 3.14t, so the 15.1.0 and 16.0.0 tables
+are checked there and by hand. A table is added when a new CPython brings a new Unicode version.
 
 The file is parsed by the compiler (`crates/hygiene/src/table.rs`, a `const fn` run in a `static`
 initialiser): a malformed table (missing, empty or repeated section, a token that is not

@@ -7,6 +7,7 @@ nothing else of the character: an address `a@b.<c>` for `\\w`, a phone number of
 `\\d`, and a phone number with one `<c>` among its digits for `\\s`.
 """
 
+import os
 import re
 import subprocess
 import sys
@@ -27,6 +28,12 @@ def test_the_package_reports_the_interpreters_unicode_and_supports_it() -> None:
     assert hygiene.UNICODE_VERSION == unicodedata.unidata_version
     assert hygiene.UNICODE_VERSION in SUPPORTED
     assert hygiene.UNICODE_SUPPORTED is True
+    # Each CI leg names the Unicode its interpreter must have, so a leg that quietly runs another
+    # interpreter (and so proves another table) fails here instead of passing.
+    expected = os.environ.get("DAGNAM_EXPECT_UNICODE")
+    if expected is not None:
+        assert unicodedata.unidata_version == expected
+        assert hygiene.UNICODE_VERSION == expected
 
 
 def _members(
