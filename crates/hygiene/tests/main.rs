@@ -28,14 +28,14 @@ const MINHASH_CASES: usize = 739;
 /// The cases `corpus/near_dedup.jsonl` holds.
 const NEAR_DEDUP_CASES: usize = 180;
 /// The cases `corpus/findings.jsonl` holds.
-const FINDINGS_CASES: usize = 3795;
+const FINDINGS_CASES: usize = 3796;
 /// The cases `corpus/credentials.jsonl` holds.
-const CREDENTIAL_CASES: usize = 9701;
+const CREDENTIAL_CASES: usize = 14075;
 /// The fewest credential cases with at least one `PII_SECRET` span, with none (a near miss
 /// that carries a marker), and with two or more (several secrets in one text).
-const MIN_FLAGGED: usize = 6798;
-const MIN_UNFLAGGED: usize = 2903;
-const MIN_MULTI_FLAGGED: usize = 2425;
+const MIN_FLAGGED: usize = 10834;
+const MIN_UNFLAGGED: usize = 3241;
+const MIN_MULTI_FLAGGED: usize = 2773;
 /// The fewest findings of each class code the corpus may hold (no `PII_SECRET`: see the README).
 const MIN_FINDINGS: [(&str, usize); 12] = [
     ("PII_CA_SIN", 218),
@@ -48,7 +48,7 @@ const MIN_FINDINGS: [(&str, usize); 12] = [
     ("PII_IP_ADDRESS", 715),
     ("PII_NATIONAL_ID", 54),
     ("PII_PAYMENT_CARD", 329),
-    ("PII_PHONE", 853),
+    ("PII_PHONE", 854),
     ("PII_UK_NINO", 137),
 ];
 

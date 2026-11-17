@@ -29,7 +29,7 @@ use crate::{FindingsCase, cases};
 /// The corpus spans of these classes: how many the finders report exactly on the whole text,
 /// how many are wider regions that hold a span, how many only the text from the region's start
 /// finds, and how many only the piece between its neighbours finds.
-const EXACT: usize = 4_733;
+const EXACT: usize = 4_734;
 const INSIDE: usize = 28;
 const TAIL: usize = 45;
 const BETWEEN: usize = 3;

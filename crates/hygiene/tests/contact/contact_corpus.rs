@@ -14,7 +14,7 @@ static TIERS: LazyLock<BTreeMap<&'static str, [usize; 4]>> = LazyLock::new(tiers
 /// that are wider regions, the ones found by the text from the region's start, and the ones
 /// found by the piece between the neighbouring regions.
 const EMAIL: [usize; 4] = [539, 4, 0, 0];
-const PHONE: [usize; 4] = [839, 0, 11, 3];
+const PHONE: [usize; 4] = [840, 0, 11, 3];
 
 #[test]
 fn the_email_corpus_spans_fall_in_the_tiers_pinned_here() {

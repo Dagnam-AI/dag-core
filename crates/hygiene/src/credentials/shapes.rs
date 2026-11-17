@@ -2,6 +2,7 @@
 //! `Bearer` and `Basic` values, a connection string's `pwd`, and a URL's password; plus the
 //! two checks that tell a value is a credential on its own (`docs/patterns.md`, P07 to P11, P18
 //! and P19).
+use std::ops::Range;
 use std::sync::LazyLock;
 
 use super::{after, for_each_match, is_value_stop, name_start_ok, run_end, url};
@@ -338,4 +339,88 @@ pub(super) fn is_high_entropy(value: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b"._~+/=-".contains(&b))
         && value.bytes().any(|b| b.is_ascii_alphabetic())
         && value.bytes().any(|b| b.is_ascii_digit())
+}
+
+/// Whether `c` is in the alphabet of a high-entropy value: `A-Za-z0-9._~+/=-`.
+fn is_entropy_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || "._~+/=-".contains(c)
+}
+
+/// The `s` in `start..end` for which `text[s..end]` is high entropy (`is_high_entropy`): after the
+/// last character outside the alphabet, no later than the last letter and the last digit, and at
+/// least 16 from the end. Three reads from the end of the value (each stops at its answer), so a
+/// name inside a value is judged by a lookup, not by a pass over the rest of the value.
+///
+/// Every character from `s` on is in the alphabet, so byte offsets and characters agree there.
+pub(super) fn entropy_starts(text: &str, start: usize, end: usize) -> Range<usize> {
+    let value = text.get(start..end).unwrap_or_default();
+    let first = value
+        .char_indices()
+        .rfind(|&(_, c)| !is_entropy_char(c))
+        .map_or(0, |(at, c)| at + c.len_utf8());
+    let last = value
+        .rfind(|c: char| c.is_ascii_alphabetic())
+        .zip(value.rfind(|c: char| c.is_ascii_digit()))
+        .zip(value.len().checked_sub(16))
+        .map(|((letter, digit), room)| letter.min(digit).min(room));
+    last.map_or(0..0, |last| start + first..start + last + 1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{entropy_starts, is_high_entropy};
+
+    /// Every start `entropy_starts` names is one the whole-value test accepts, and no other.
+    fn assert_same_as_whole_value_test(text: &str, start: usize, end: usize) {
+        let starts = entropy_starts(text, start, end);
+        for at in (start..=end).filter(|&at| text.is_char_boundary(at)) {
+            assert_eq!(
+                starts.contains(&at),
+                is_high_entropy(&text[at..end]),
+                "{at} in {start}..{end} of {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_starts_are_the_suffixes_that_are_high_entropy() {
+        let run = "x".repeat(16);
+        for text in [
+            format!("{run}1"),
+            format!("1{run}"),
+            format!("{run}{run}1{run}"),
+            format!("\u{e9}{run}1"),
+            format!("{run}1\u{e9}{run}2"),
+            format!("{run}1 {run}2"),
+            format!("{run}-{run}"),
+            format!("{run}1\u{e9}"),
+            format!("1{}", "-".repeat(20)),
+            format!("{}x", "1".repeat(20)),
+            "x1".repeat(7),
+            String::new(),
+        ] {
+            assert_same_as_whole_value_test(&text, 0, text.len());
+        }
+    }
+
+    #[test]
+    fn the_starts_are_read_inside_the_range_given() {
+        let text = format!("name={}1;tail", "x".repeat(16));
+        let (start, end) = (5, 5 + 17);
+        assert_same_as_whole_value_test(&text, start, end);
+        assert_eq!(entropy_starts(&text, start, end), 5..7);
+        // A range that is not a slice of the text is no value at all.
+        assert_eq!(entropy_starts(&text, 5, text.len() + 1), 0..0);
+    }
+
+    #[test]
+    fn a_value_with_no_letter_no_digit_or_too_short_has_no_start() {
+        for text in [
+            "x".repeat(30),
+            "1".repeat(30),
+            format!("x1{}", "-".repeat(10)),
+        ] {
+            assert_eq!(entropy_starts(&text, 0, text.len()), 0..0, "{text}");
+        }
+    }
 }

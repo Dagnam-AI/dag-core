@@ -7,7 +7,11 @@ value in a file was computed by the reference; none was typed by hand.
 
 - Written by `python/tests/hygiene/export_corpus.py` in
   [dag-contracts](https://github.com/Dagnam-AI/dag-contracts) at the commit that merges
-  that exporter, `2cd2ade`, under Python 3.13.14.
+  that last changed the exporter's cases, `8ee5f42` (`dagnam-contracts` after 0.6.0: the
+  credentials finder reads a name inside a refused value, and the exporter's case table holds those
+  shapes), under Python 3.13.14. `minhash.jsonl`, `near_dedup.jsonl` and the 15.1.0 line of
+  `classes.jsonl` are byte-for-byte what the earlier export wrote; `findings.jsonl` gained one
+  `PII_PHONE` case and `credentials.jsonl` 4,374 cases.
 - Regenerate with `uv run python tests/hygiene/export_corpus.py <dir>` from the
   `python/` folder of that checkout; it prints the counts below. The output is seeded
   and sorted, so the same commit writes the same bytes.
@@ -23,8 +27,8 @@ value in a file was computed by the reference; none was typed by hand.
 |---|---|---|
 | `minhash.jsonl` | `{"shingles": [str], "signature": [str]}`: the 128 values are decimal strings, because they exceed 2^53. `shingles` may repeat a value; hash the set | 739 |
 | `near_dedup.jsonl` | `{"texts": [str], "threshold": float, "duplicate_indices": [int], "pairs": [[int, int, float]]}` | 180 |
-| `findings.jsonl` | `{"text": str, "spans": [[int, int, str]]}`: offsets in code points (not UTF-16 units, bytes or graphemes) and the class code | 3795 |
-| `credentials.jsonl` | `{"parts": [str], "spans": [[int, int, str]]}`: the text is `"".join(parts)`, the spans are what the reference reports on that text (see below) | 9701 |
+| `findings.jsonl` | `{"text": str, "spans": [[int, int, str]]}`: offsets in code points (not UTF-16 units, bytes or graphemes) and the class code | 3796 |
+| `credentials.jsonl` | `{"parts": [str], "spans": [[int, int, str]]}`: the text is `"".join(parts)`, the spans are what the reference reports on that text (see below) | 14075 |
 | `classes.jsonl` | `{"unicode": str, "word": [[int, int]], "space": [[int, int]], "digit": [[int, int]]}`: one line per Unicode version (15.0.0, 15.1.0, 16.0.0, in that order), the inclusive code-point ranges that Python's `re` matches with `\w`, `\s` and `\d` under the interpreter that has it, ascending, with adjacent runs merged and the surrogates (U+D800 to U+DFFF) skipped | 3 |
 
 `classes.jsonl` is computed with `re.fullmatch` over every code point, one line per interpreter:
@@ -38,8 +42,8 @@ exported under Python 3.13.14, so their tests read under 15.1.0.
 
 `findings.jsonl` holds, per class code: PII_CA_SIN 218, PII_DATE_OF_BIRTH 266,
 PII_EMAIL 543, PII_EU_VAT 537, PII_IBAN 510, PII_IN_AADHAAR 529, PII_IN_PAN 118,
-PII_IP_ADDRESS 715, PII_NATIONAL_ID 54, PII_PAYMENT_CARD 329, PII_PHONE 853,
-PII_UK_NINO 137. It includes 1,901 windows recovered from texts that held a credential
+PII_IP_ADDRESS 715, PII_NATIONAL_ID 54, PII_PAYMENT_CARD 329, PII_PHONE 854,
+PII_UK_NINO 137. It includes 1,902 windows recovered from texts that held a credential
 nearby: the window around each finding that is not a credential, cut back to hold no
 credential region, with the spans the reference reports on the window itself.
 
@@ -75,7 +79,7 @@ Each line is `{"parts": [str, ...], "spans": [[start, end, code]]}`. The text is
 `"".join(parts)`; `spans` is what the reference's `findings` returns for that text
 (code-point offsets and the class code, as in `findings.jsonl`), so a case may also hold
 a phone number or an address. Cases are sorted by assembled text and not repeated. About
-three in ten (2,903) have no `PII_SECRET` span: near misses that carry a credential
+about one in four (3,241) have no `PII_SECRET` span: near misses that carry a credential
 marker or a name shape (a provider prefix with too short a body, a name and separator with
 a value the reference does not read as a secret, a PEM header with no key).
 
@@ -103,17 +107,23 @@ the shortest valid length, one shorter, longer; assignments (names x separators 
 quoted and bare); URLs with userinfo; PEM blocks (with and without the END line);
 JWT-like shapes; several secrets in one text, adjacent and overlapping ones; non-ASCII
 neighbours. Cases per format (a case counts for every format it holds): `assignment_bare`
-1,792, `assignment_quoted` 884, `aws_key_id` 293, `basic` 240, `bearer` 348, `github` 632,
+5,828, `assignment_quoted` 887, `aws_key_id` 293, `basic` 240, `bearer` 348, `github` 632,
 `gitlab` 125, `google` 163, `huggingface` 146, `jwt` 127, `openai_anthropic` 1,471, `pem`
 234, `pwd` 1,134, `slack` 374, `stripe` 283, `url_password` 1,090; no `PII_SECRET` span
-2,903. The format labels are exporter-side heuristics (the span's prefix and the text
+3,241. The format labels are exporter-side heuristics (the span's prefix and the text
 before it), not the rule that fired in the reference, so a small number of spans carry a
 neighbouring label such as `openai_anthropic`, `google` or `github`; counts are
 approximate.
 
-There is no credential detector in Rust yet, so nothing compares against these cases
-until one lands; today the Rust tests only check the file's shape and counts (cases with
-a secret at least 6,798, without 2,903, with several 2,425).
+The credentials finder is compared with the whole file (`crates/hygiene/tests/credentials/`):
+every `PII_SECRET` span of a case is found exactly on the whole text (14,630 of them), inside a
+wider region or by the piece the scan reads again (687 and 34), and the finder reports nothing
+the reference does not. The file's shape and counts are pinned in `crates/hygiene/tests/main.rs`
+(cases with a secret at least 10,834, without 3,241, with several 2,773). It holds the shapes of
+the credentials fix of `8ee5f42`: a name inside a value an ambiguous name refused
+(`<name>=<20 letters><joiner><name>=<value>`, 13 joiners, the names and separators, four value
+kinds and four wrappers), runs of repeated names, and a name that starts inside a value that is
+taken whole.
 
 ## `near_dedup.jsonl`
 

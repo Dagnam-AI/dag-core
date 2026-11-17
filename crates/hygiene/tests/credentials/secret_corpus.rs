@@ -22,7 +22,7 @@ use crate::{CredentialCase, FindingsCase, cases};
 
 /// The `PII_SECRET` spans of the credential cases: how many the finder reports exactly on the
 /// whole text, how many are wider regions that hold a span, and how many only a piece finds.
-const EXACT: usize = 10_181;
+const EXACT: usize = 14_630;
 const INSIDE: usize = 687;
 const PIECE: usize = 34;
 
