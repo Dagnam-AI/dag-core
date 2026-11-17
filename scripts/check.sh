@@ -35,6 +35,9 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --no-deps
 cargo test --locked --workspace --doc # nextest does not run doctests
 cargo deny --locked check
+# fuzz/ is outside the workspace, so the checks above never read its lockfile.
+cargo deny --manifest-path fuzz/Cargo.toml --locked check
+cargo machete fuzz
 cargo machete
 cargo llvm-cov nextest --locked -p dagnam-hygiene \
   --fail-under-lines 100 --fail-under-regions 100 --fail-under-functions 100
