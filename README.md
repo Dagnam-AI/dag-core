@@ -40,6 +40,14 @@ its tables; on an interpreter it does not, the three functions raise `RuntimeErr
 uses the pure-Python reference (see [docs/divergences.md](docs/divergences.md)). A process that
 replaces `unicodedata` with another module before importing the package is unsupported.
 
+`near_duplicates` bounds a batch, because its size is another party's choice: more than
+`MAX_TEXTS` texts, a text of more than `MAX_TEXT_CHARS` characters, more than `MAX_TOTAL_CHARS` in
+all, more than `MAX_COMPARISONS` candidate pairs compared or more than `MAX_PAIRS` near-duplicate
+pairs raise `hygiene.NearDedupLimitError`, a `ValueError` whose message names the limit and its
+value and holds no text. The numbers are module attributes of `dagnam_core.hygiene` and are the
+reference's (`dagnam_contracts.hygiene`). The core reads the texts the caller has normalised; a
+caller that holds the raw rows reads the size limits on them first, as the reference does.
+
 ## Gate
 
 ```sh

@@ -34,6 +34,14 @@ Not among the 34: eleven calls of `re.sub/search/split/findall` with a literal p
 the end) and two other files of the package (`trace/envelope.py`, `prompts.py`), which are out of
 scope. `rows.py`, `pii.py`, `dedup.py` and `contamination.py` use no regex.
 
+Since `80177e1` the reference (`8ee5f42`) added one compiled pattern, `_OUTSIDE_ENTROPY` in
+`credentials.py`, the class `[^A-Za-z0-9._~+/=-]` that its `_entropy_starts` scans for. It is not
+ported as a pattern: `entropy_starts` (`crates/hygiene/src/credentials/shapes.rs`) reads the same
+set in code (`is_entropy_char`), from the end of the value, and its tests check it against
+`is_high_entropy` (P18) on every suffix. `_HIGH_ENTROPY` is now spelled from the same class string
+and matches the same text. No other pattern changed; the line numbers in this file are those of
+`80177e1`.
+
 ## How a route 2 check is applied
 
 Every route 2 entry uses one or more of these. The body is the pattern with its lookarounds
