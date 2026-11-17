@@ -2,7 +2,7 @@ name: Build and test the release files
 
 # Called by release.yml (a reusable workflow, so release.yml stays under the 500-line cap while the
 # publish jobs, which PyPI's trusted publisher binds to `release.yml`, stay in it). It builds every
-# wheel and the sdist, installs each wheel on its own platform and runs tests/. It publishes
+# wheel, the sdist and the stub, installs each wheel on its own platform and runs tests/. It publishes
 # nothing and holds no secret: every job has `contents: read` and nothing else.
 on:
   workflow_call:
@@ -20,7 +20,7 @@ jobs:
   # platform for CPython 3.12 and later; `ft` is the free-threaded wheel, built against 3.14t.
   # PyO3 ignores its abi3 feature on a free-threaded interpreter, so the `ft` wheel is
   # version-specific (cp314-cp314t), not abi3. There is no 3.13t wheel: PyO3 0.29 dropped
-  # free-threaded 3.13 (its build script refuses it), so none can be built until that changes.
+  # free-threaded 3.13 (its build script refuses it), so 3.13t installs the stub (`build-stub`).
   # Linux gnu wheels are manylinux 2014 (glibc 2.17: CentOS/RHEL 7, Amazon Linux 2, Ubuntu 16.04),
   # musl wheels are musllinux_1_2. The container images are pinned by digest; what maturin-action
   # downloads inside them is a known accepted risk (RELEASE.md).
@@ -195,6 +195,32 @@ jobs:
           uv pip install --python .venv-smoke --no-deps --no-build-isolation "$RUNNER_TEMP"/sdist/*.tar.gz
           cd tests && ../.venv-smoke/bin/python -m pytest -q .
 
+  # The stub: one pure-Python wheel (py3-none-any) that every platform without a native wheel
+  # installs instead of building the sdist (pip and uv prefer a wheel to an sdist, and a native
+  # wheel to this one). Its import raises ImportError, which dagnam-contracts catches before it
+  # runs its Python code. Built with the standard library only, reproducibly: built twice here,
+  # and the two must be the same bytes.
+  build-stub:
+    name: Build the stub wheel
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the stub wheel, twice
+        run: |
+          python3 .github/scripts/build_stub_wheel.py dist
+          python3 .github/scripts/build_stub_wheel.py "$RUNNER_TEMP/again"
+          cmp dist/*.whl "$RUNNER_TEMP"/again/*.whl
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-stub
+          path: dist/
+          if-no-files-found: error
+
   # Each wheel on a machine of its own platform, in a clean environment holding only the wheel
   # and the hash-pinned pytest, running tests/ from outside the source tree. Linux aarch64 runs on
   # a native arm64 runner (no emulation); the musllinux wheels run inside an Alpine container on
@@ -304,3 +330,68 @@ jobs:
             uv pip install --python /tmp/venv --no-deps /dist/*.whl
             /tmp/venv/bin/python -m pytest -q -p no:cacheprovider .
             /tmp/venv/bin/python -W error -c "import sys, dagnam_core._native; assert sys._is_gil_enabled() is False"'
+
+  # The selection the stub exists for, with the 16 files of this run as the only index: a
+  # supported interpreter must install its NATIVE wheel, free-threaded 3.13 (no native wheel)
+  # must install the STUB and must not build the sdist, with both pip and uv. A wrong tag, a
+  # missing stub or a resolver that prefers the sdist fails here, before anything is uploaded.
+  select:
+    name: Install selection on ${{ matrix.py }}
+    needs: [build, sdist, build-stub]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { py: "3.12", expect: native }
+          - { py: "3.13", expect: native }
+          - { py: "3.14t", expect: native }
+          - { py: "3.13t", expect: stub }
+    env:
+      PY: ${{ matrix.py }}
+      EXPECT: ${{ matrix.expect }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: links/
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+      - name: Install dagnam-core from the 16 files only, with pip and with uv
+        run: |
+          test "$(find links -type f | wc -l)" -eq 16
+          for tool in pip uv; do
+            uv venv --seed --python "$PY" ".venv-$tool"
+            if [ "$tool" = pip ]; then
+              out=$(.venv-pip/bin/python -m pip install --no-index --find-links links dagnam-core 2>&1) || { echo "$out"; exit 1; }
+            else
+              out=$(uv pip install --python .venv-uv --no-index --find-links links dagnam-core 2>&1) || { echo "$out"; exit 1; }
+            fi
+            echo "$out"
+            if echo "$out" | grep -qiE 'Building wheel|Preparing metadata|build dependencies|maturin'; then
+              echo "::error::$tool built the sdist"
+              exit 1
+            fi
+            ".venv-$tool/bin/python" -c '
+          import os
+          import dagnam_core
+          try:
+              from dagnam_core import hygiene
+          except ImportError:
+              assert os.environ["EXPECT"] == "stub", "a native wheel was expected"
+          else:
+              assert os.environ["EXPECT"] == "native", "the stub was expected"
+              assert hygiene.CORE_API == 2 and hygiene.UNICODE_SUPPORTED
+          print("ok", os.environ["EXPECT"], dagnam_core.__version__)
+          '
+          done

@@ -1,6 +1,6 @@
 """Release file checks for release.yml: what may be published, and TestPyPI parity.
 
-    release_dist.py verify STAGE OUT   every artifact in STAGE is one of the 15 expected, with
+    release_dist.py verify STAGE OUT   every artifact in STAGE is one of the 16 expected, with
                                        exactly the expected file; the files are copied to OUT
     release_dist.py compare DIST       TestPyPI serves exactly DIST's files, byte for byte
 
@@ -46,6 +46,8 @@ def expected(ver: str) -> dict[str, re.Pattern[str]]:
         for kind, tag in KINDS.items()
     }
     want["dist-sdist"] = re.compile(rf"dagnam_core-{re.escape(ver)}\.tar\.gz")
+    # the pure-Python stub every platform without a native wheel installs instead of the sdist
+    want["dist-stub"] = re.compile(rf"dagnam_core-{re.escape(ver)}-py3-none-any\.whl")
     return want
 
 

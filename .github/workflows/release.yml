@@ -15,6 +15,7 @@ on:
       - ".github/workflows/release.yml"
       - ".github/workflows/release-build.yml"
       - ".github/scripts/release_dist.py"
+      - ".github/scripts/build_stub_wheel.py"
       - ".github/ci-requirements.txt"
       - ".github/ci-build-requirements.txt"
       - "rust-toolchain.toml"
@@ -96,12 +97,12 @@ jobs:
   # by the reusable workflow below. It is a separate file only to keep this one under the 500-line
   # cap: everything the trusted publisher binds (the publish jobs, the environments) stays here.
   build-test:
-    name: Build and test every wheel and the sdist
+    name: Build and test every wheel, the sdist and the stub
     permissions:
       contents: read
     uses: ./.github/workflows/release-build.yml
 
-  # The release is exactly the 15 files below and nothing else: every other artifact of this
+  # The release is exactly the 16 files below and nothing else: every other artifact of this
   # run (a stray one from a build or test job) fails here, and attest and publish take only the
   # re-uploaded `release-dist`. A rogue `release-dist` made earlier fails the upload.
   collect:
@@ -210,6 +211,9 @@ jobs:
           # of the name there could otherwise win a tie against this one.
           uv pip install --python "$RUNNER_TEMP/smoke" --no-deps --refresh \
             --index-url https://test.pypi.org/simple/ "dagnam-core==$version"
+      # On a supported platform the install above must give the NATIVE wheel, not the stub: the
+      # import below raises ImportError on the stub, and CORE_API and UNICODE_SUPPORTED are the
+      # compiled module's.
       - name: Run what was installed
         run: |
           "$RUNNER_TEMP/smoke/bin/python" -c '

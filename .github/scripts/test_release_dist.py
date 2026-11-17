@@ -10,6 +10,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -33,13 +34,14 @@ KINDS = {"abi3": "cp312-abi3", "ft": "cp314-cp314t"}
 
 
 def artifacts() -> dict[str, str]:
-    """Artifact name -> file name: 7 platforms x 2 kinds, and the sdist."""
+    """Artifact name -> file name: 7 platforms x 2 kinds, the sdist and the stub."""
     files = {
         f"dist-{platform}-{kind}": f"dagnam_core-{VERSION}-{tag}-{plat}.whl"
         for platform, plat in PLATFORMS.items()
         for kind, tag in KINDS.items()
     }
     files["dist-sdist"] = f"dagnam_core-{VERSION}.tar.gz"
+    files["dist-stub"] = f"dagnam_core-{VERSION}-py3-none-any.whl"
     return files
 
 
@@ -62,6 +64,10 @@ class WorkDir(unittest.TestCase):
             (stage / artifact / name).write_bytes(name.encode())
         return stage
 
+    def stage_again(self, files: dict[str, str]) -> Path:
+        shutil.rmtree(self.root / "stage")
+        return self.stage(files)
+
     def verify_fails(self, stage: Path) -> str:
         with self.assertRaises(SystemExit) as raised:
             release_dist.verify(stage, self.root / "out")
@@ -69,15 +75,15 @@ class WorkDir(unittest.TestCase):
 
 
 class Verify(WorkDir):
-    def test_there_are_15_artifacts(self) -> None:
-        self.assertEqual(len(artifacts()), 15)
+    def test_there_are_16_artifacts(self) -> None:
+        self.assertEqual(len(artifacts()), 16)
         self.assertEqual(sorted(release_dist.expected(VERSION)), sorted(artifacts()))
 
     def test_exactly_the_expected_artifacts_pass_and_are_copied_out(self) -> None:
         stage = self.stage(artifacts())
         with contextlib.redirect_stdout(io.StringIO()) as out:
             release_dist.verify(stage, self.root / "out")
-        self.assertEqual(out.getvalue().strip(), "15 artifacts, 15 files, all expected")
+        self.assertEqual(out.getvalue().strip(), "16 artifacts, 16 files, all expected")
         self.assertEqual(
             sorted(p.name for p in (self.root / "out").iterdir()), sorted(artifacts().values())
         )
@@ -90,12 +96,12 @@ class Verify(WorkDir):
         with contextlib.redirect_stdout(io.StringIO()):
             release_dist.verify(self.stage(files), self.root / "out")
 
-    def test_14_artifacts_fail_naming_the_missing_one(self) -> None:
+    def test_15_artifacts_fail_naming_the_missing_one(self) -> None:
         files = artifacts()
         del files["dist-windows-x86_64-ft"]
         self.assertIn("missing ['dist-windows-x86_64-ft']", self.verify_fails(self.stage(files)))
 
-    def test_16_artifacts_fail_naming_the_extra_one(self) -> None:
+    def test_17_artifacts_fail_naming_the_extra_one(self) -> None:
         files = artifacts()
         files["dist-linux-riscv64-gnu-abi3"] = f"dagnam_core-{VERSION}-cp312-abi3-linux_riscv64.whl"
         self.assertIn(
@@ -114,6 +120,13 @@ class Verify(WorkDir):
         # the 3.14t wheel uploaded under the abi3 artifact's name
         files["dist-macos-aarch64-abi3"] = files["dist-macos-aarch64-ft"]
         self.assertIn("dist-macos-aarch64-abi3 must hold", self.verify_fails(self.stage(files)))
+
+    def test_the_stub_is_required_and_must_be_the_universal_wheel(self) -> None:
+        files = artifacts()
+        del files["dist-stub"]
+        self.assertIn("missing ['dist-stub']", self.verify_fails(self.stage(files)))
+        files["dist-stub"] = f"dagnam_core-{VERSION}-cp312-abi3-win_amd64.whl"
+        self.assertIn("dist-stub must hold", self.verify_fails(self.stage_again(files)))
 
     def test_a_wheel_of_another_version_is_refused(self) -> None:
         files = artifacts()
