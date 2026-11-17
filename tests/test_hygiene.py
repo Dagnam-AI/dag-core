@@ -14,7 +14,7 @@ MASK64 = 2**64 - 1
 
 
 def test_the_package_reports_its_version_and_api() -> None:
-    assert dagnam_core.__version__ == "0.1.0"
+    assert dagnam_core.__version__ == "0.1.1"
     assert hygiene.CORE_API == 1
 
 

@@ -231,6 +231,22 @@ jobs:
           name: dist-sdist
           path: dist/
           if-no-files-found: error
+      # PyPI refuses an sdist whose metadata names a License-File the archive does not hold (maturin
+      # 1.15 did that for LICENSE), after it has already taken the wheels: catch it before any upload.
+      - name: The sdist holds every file its metadata names
+        run: |
+          python3 - <<'PY'
+          import glob, tarfile
+          (path,) = glob.glob("dist/*.tar.gz")
+          with tarfile.open(path) as tar:
+              names = set(tar.getnames())
+              root = path.rsplit("/", 1)[1].removesuffix(".tar.gz")
+              info = tar.extractfile(f"{root}/PKG-INFO").read().decode()
+          wanted = [l.split(": ", 1)[1].strip() for l in info.splitlines() if l.startswith("License-File: ")]
+          assert wanted, "no License-File in the sdist metadata"
+          missing = [f for f in wanted if f"{root}/{f}" not in names]
+          assert not missing, f"named in PKG-INFO but not in the sdist: {missing}"
+          PY
       # What a user without a wheel gets: the sdist is built from a COPY, with the hash-pinned
       # maturin and pytest. The compiler is forced to the pin because the crates declare
       # rust-version 1.99: a user needs one that new, and the test must not pass on an older one.
