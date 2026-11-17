@@ -13,6 +13,23 @@ const CAP: usize = 1 << 30;
 /// Heap bytes live now.
 static LIVE: AtomicUsize = AtomicUsize::new(0);
 
+/// The most heap bytes live at once since `reset_high_water`.
+static HIGH_WATER: AtomicUsize = AtomicUsize::new(0);
+
+/// Starts a measurement: the high-water mark is what is live now. Read it with `high_water`. The
+/// counters are the process's, so a test that measures runs in a process of its own (nextest does
+/// that; `cargo test` runs tests as threads of one, and another test's heap would count).
+pub(crate) fn reset_high_water() -> usize {
+    let live = LIVE.load(Ordering::Relaxed);
+    HIGH_WATER.store(live, Ordering::Relaxed);
+    live
+}
+
+/// The most heap bytes live at once since `reset_high_water`.
+pub(crate) fn high_water() -> usize {
+    HIGH_WATER.load(Ordering::Relaxed)
+}
+
 /// The system allocator with a cap.
 pub(crate) struct Capped;
 
@@ -27,7 +44,9 @@ fn trip() -> ! {
 
 /// Adds `bytes` to the live total and stops the process past the cap.
 fn grow(bytes: usize) {
-    if LIVE.fetch_add(bytes, Ordering::Relaxed) + bytes > CAP {
+    let live = LIVE.fetch_add(bytes, Ordering::Relaxed) + bytes;
+    HIGH_WATER.fetch_max(live, Ordering::Relaxed);
+    if live > CAP {
         trip();
     }
 }

@@ -1,22 +1,18 @@
 //! Near-duplicate clustering: shingling, banded LSH candidates, verified by the full signature.
-use std::collections::{BTreeSet, HashMap};
-
+use crate::candidates::Candidates;
+use crate::limits::{Limits, NearDedupError, check_text_count, check_text_lengths};
 use crate::minhash::{NUM_PERMUTATIONS, minhash_signature};
 
 /// Words per shingle; a text with fewer words shingles to its words.
 pub const SHINGLE_SIZE: usize = 3;
-/// LSH bands.
-pub const BANDS: usize = 32;
-/// Signature positions in one band.
-const ROWS_PER_BAND: usize = NUM_PERMUTATIONS / BANDS;
 /// `NUM_PERMUTATIONS` as the divisor of the Jaccard estimate.
 const WIDTH: f64 = 128.0;
-const _: () = assert!(NUM_PERMUTATIONS == 128 && BANDS * ROWS_PER_BAND == NUM_PERMUTATIONS);
+const _: () = assert!(NUM_PERMUTATIONS == 128);
 
 /// One clustered pair: `(kept_index, duplicate_index, similarity)`.
 pub type Pair = (usize, usize, f64);
 
-type Signature = [u64; NUM_PERMUTATIONS];
+pub(crate) type Signature = [u64; NUM_PERMUTATIONS];
 
 /// The word shingles of a text.
 ///
@@ -33,31 +29,9 @@ fn shingles(text: &str) -> Vec<String> {
     words.windows(SHINGLE_SIZE).map(|w| w.join(" ")).collect()
 }
 
-#[allow(clippy::indexing_slicing)] // `band < BANDS`, and a signature holds exactly BANDS chunks
-fn band_key(signature: &Signature, band: usize) -> &[u64; ROWS_PER_BAND] {
-    &signature.as_chunks::<ROWS_PER_BAND>().0[band]
-}
-
-/// Index pairs `(low, high)` that share at least one LSH band, in ascending order.
-///
-/// One band at a time, so only one bucket map is alive at once.
-fn candidate_pairs(signatures: &[Signature]) -> BTreeSet<(usize, usize)> {
-    let mut candidates = BTreeSet::new();
-    for band in 0..BANDS {
-        let mut buckets: HashMap<&[u64; ROWS_PER_BAND], Vec<usize>> = HashMap::new();
-        for (index, signature) in signatures.iter().enumerate() {
-            buckets
-                .entry(band_key(signature, band))
-                .or_default()
-                .push(index);
-        }
-        for members in buckets.values() {
-            for (at, &low) in members.iter().enumerate() {
-                candidates.extend(members.iter().skip(at + 1).map(|&high| (low, high)));
-            }
-        }
-    }
-    candidates
+/// The signature of a normalised text.
+pub(crate) fn sign(text: &str) -> Signature {
+    minhash_signature(shingles(text).iter().map(String::as_str))
 }
 
 /// The root of `index`, halving the path on the way up, as the reference does.
@@ -95,8 +69,41 @@ fn similarity(signatures: &[Signature], low: usize, high: usize) -> f64 {
     f64::from(agree) / WIDTH
 }
 
+/// The pairs of verified near-duplicates in the order of the walk, or the limit the walk passes.
+///
+/// The walk is the reference's: the candidate pairs in ascending order, each counted before it is
+/// compared, so the call stops instead of making comparison `limits.comparisons + 1`, and each
+/// pair at or over the threshold counted before it is kept, so it stops instead of keeping pair
+/// `limits.pairs + 1`. After an `Err` the iterator is not read again.
+fn verified(
+    signatures: &[Signature],
+    threshold: f64,
+    limits: Limits,
+) -> impl Iterator<Item = Result<Pair, NearDedupError>> + '_ {
+    let mut candidates = Candidates::new(signatures);
+    let (mut comparisons, mut found) = (0_usize, 0_usize);
+    std::iter::from_fn(move || {
+        loop {
+            let (low, high) = candidates.next()?;
+            comparisons += 1;
+            if comparisons > limits.comparisons {
+                return Some(Err(NearDedupError::TooManyComparisons));
+            }
+            let score = similarity(signatures, low, high);
+            if score < threshold {
+                continue;
+            }
+            found += 1;
+            if found > limits.pairs {
+                return Some(Err(NearDedupError::TooManyPairs));
+            }
+            return Some(Ok((low, high, score)));
+        }
+    })
+}
+
 /// Clusters normalised texts: the indices of every text that duplicates an earlier one,
-/// and each verified pair. `None` when `threshold` is outside `(0, 1]`.
+/// and each verified pair. See [`near_duplicates_within`] for the checks and their order.
 ///
 /// A cluster's representative is its lowest index, which is never reported as a duplicate.
 ///
@@ -106,30 +113,58 @@ fn similarity(signatures: &[Signature], low: usize, high: usize) -> f64 {
 /// casefolded, punctuation removed, a single U+0020 between words. Only U+0020 separates
 /// words here (Python's `split()` separates on any whitespace), so unnormalised input yields
 /// different clusters than the reference.
-#[must_use]
-pub fn near_duplicates(texts: &[&str], threshold: f64) -> Option<(Vec<usize>, Vec<Pair>)> {
+///
+/// # Errors
+///
+/// A [`NearDedupError`]: the threshold, or the limit the batch passes.
+pub fn near_duplicates(
+    texts: &[&str],
+    threshold: f64,
+) -> Result<(Vec<usize>, Vec<Pair>), NearDedupError> {
+    near_duplicates_within(texts, threshold, Limits::DEFAULT)
+}
+
+/// [`near_duplicates`] under the given [`Limits`].
+///
+/// The checks run in the reference's order, each before the memory the next step needs:
+///
+/// 1. the threshold, which must be in `(0, 1]`;
+/// 2. the number of texts, then each text's length in characters and the running total, text by
+///    text (this crate reads the normalised texts, the second reading of the reference's size
+///    limits; a caller that has the raw rows reads the first before it normalises anything);
+/// 3. the walk over the candidate pairs, counting comparisons and near-duplicate pairs. The walk
+///    is run once to count, holding nothing, and again only when the batch is inside the limits,
+///    to build the result in exactly the memory it needs.
+///
+/// # Errors
+///
+/// A [`NearDedupError`]: the threshold, or the first limit the batch passes.
+pub fn near_duplicates_within(
+    texts: &[&str],
+    threshold: f64,
+    limits: Limits,
+) -> Result<(Vec<usize>, Vec<Pair>), NearDedupError> {
     // Written as a conjunction so that NaN, which compares false, is refused too.
     let valid = threshold > 0.0 && threshold <= 1.0;
     if !valid {
-        return None;
+        return Err(NearDedupError::Threshold);
     }
-    let signatures: Vec<Signature> = texts
-        .iter()
-        .map(|text| minhash_signature(shingles(text).iter().map(String::as_str)))
-        .collect();
+    check_text_count(texts.len())?;
+    check_text_lengths(texts.iter().map(|text| text.chars().count()))?;
+    let signatures: Vec<Signature> = texts.iter().map(|text| sign(text)).collect();
+    let count = verified(&signatures, threshold, limits)
+        .try_fold(0_usize, |count, pair| pair.map(|_| count + 1))?;
     let mut parent: Vec<usize> = (0..texts.len()).collect();
-    let mut pairs = Vec::new();
-    for (low, high) in candidate_pairs(&signatures) {
-        let score = similarity(&signatures, low, high);
-        if score >= threshold {
-            pairs.push((low, high, score));
-            union(&mut parent, low, high);
-        }
+    let mut pairs = Vec::with_capacity(count);
+    // No limit here, so every item is an `Ok`: the first walk has counted what this one finds.
+    for (low, high, score) in verified(&signatures, threshold, Limits::NONE).flatten() {
+        pairs.push((low, high, score));
+        union(&mut parent, low, high);
     }
     let duplicates = (0..texts.len())
         .filter(|&index| find(&mut parent, index) != index)
         .collect();
-    Some((duplicates, pairs))
+    Ok((duplicates, pairs))
 }
 
 #[cfg(test)]
@@ -165,37 +200,6 @@ mod tests {
         // Already one cluster: only the halving of the two paths moves anything.
         union(&mut parent, 3, 2);
         assert_eq!(parent, [0, 0, 0, 0]);
-    }
-
-    #[test]
-    fn candidates_are_the_pairs_that_share_any_band() {
-        let texts = [
-            "a b c d e f",
-            "a b c d e f",
-            "a b c d e g",
-            "x y z w v u",
-            "",
-            "",
-            "a b",
-            "b a",
-            "p q r s t u v w",
-            "p q r s t u v x",
-        ];
-        let signatures: Vec<Signature> = texts
-            .iter()
-            .map(|t| minhash_signature(shingles(t).iter().map(String::as_str)))
-            .collect();
-        let expected: BTreeSet<(usize, usize)> = (0..texts.len())
-            .flat_map(|low| ((low + 1)..texts.len()).map(move |high| (low, high)))
-            .filter(|&(low, high)| {
-                (0..BANDS).any(|band| {
-                    band_key(&signatures[low], band) == band_key(&signatures[high], band)
-                })
-            })
-            .collect();
-        assert!(expected.contains(&(0, 1)) && expected.contains(&(4, 5)));
-        assert!(!expected.contains(&(0, 3)));
-        assert_eq!(candidate_pairs(&signatures), expected);
     }
 
     #[test]

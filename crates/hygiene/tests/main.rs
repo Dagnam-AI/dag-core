@@ -16,6 +16,7 @@ mod contact;
 mod credentials;
 mod detectors;
 mod guard;
+mod near_dedup;
 mod reference;
 mod spans;
 mod text;
@@ -236,17 +237,18 @@ fn a_threshold_outside_the_half_open_unit_interval_is_refused() {
         f64::INFINITY,
         f64::NEG_INFINITY,
     ] {
-        assert!(dagnam_hygiene::near_duplicates(&["a b c"], bad).is_none());
-        assert!(dagnam_hygiene::near_duplicates(&[], bad).is_none());
+        let refused = Err(dagnam_hygiene::NearDedupError::Threshold);
+        assert_eq!(dagnam_hygiene::near_duplicates(&["a b c"], bad), refused);
+        assert_eq!(dagnam_hygiene::near_duplicates(&[], bad), refused);
     }
     for good in [f64::MIN_POSITIVE, 0.5, 1.0] {
-        assert!(dagnam_hygiene::near_duplicates(&[], good).is_some());
+        assert!(dagnam_hygiene::near_duplicates(&[], good).is_ok());
     }
 }
 
 #[test]
 fn degenerate_inputs_have_no_duplicates() {
-    let none = Some((vec![], vec![]));
+    let none = Ok((vec![], vec![]));
     assert_eq!(dagnam_hygiene::near_duplicates(&[], 0.5), none);
     assert_eq!(dagnam_hygiene::near_duplicates(&["a b c d"], 0.5), none);
 }

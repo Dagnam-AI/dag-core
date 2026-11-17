@@ -3,7 +3,8 @@
 //! Every binding extracts owned Rust values first, releases the GIL around the call into the
 //! pure crate, and builds its result afterwards. No binding formats its input into an error, a
 //! log or a panic message: the only text an error carries is a fixed message (plus the number a
-//! threshold was refused for), a value of the wrong type is reported by `PyO3` by type name, and
+//! threshold was refused for, or the numbers of a limit a batch passed), a value of the wrong type is
+//! reported by `PyO3` by type name, and
 //! a string that is not UTF-8 raises a `UnicodeEncodeError` whose `object` is empty (`PyO3`'s
 //! own would hold the whole input, and so would anything that prints or stores the exception).
 //!
@@ -15,7 +16,8 @@
 use std::sync::OnceLock;
 
 use dagnam_hygiene::UnicodeVersion;
-use pyo3::exceptions::{PyRuntimeError, PyUnicodeEncodeError};
+use pyo3::create_exception;
+use pyo3::exceptions::{PyRuntimeError, PyUnicodeEncodeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyString;
 
@@ -54,15 +56,36 @@ fn utf8(text: &Bound<'_, PyString>) -> PyResult<String> {
 /// The compiled module, imported by `dagnam_core.hygiene`.
 #[pymodule]
 mod _native {
+    use dagnam_hygiene::NearDedupError;
     use pyo3::exceptions::{PyTypeError, PyValueError};
     use pyo3::prelude::*;
     use pyo3::types::{PyModule, PyString, PyTuple};
 
-    use super::{SELECTION, Selection, UnicodeVersion, utf8, version};
+    use super::{NearDedupLimitError, SELECTION, Selection, UnicodeVersion, utf8, version};
 
     /// Bumped when any binding changes meaning; the Python caller compares it with the value it was written against.
     #[pymodule_export]
     const CORE_API: u32 = dagnam_hygiene::core_api();
+
+    /// The most texts one `near_duplicates` batch holds.
+    #[pymodule_export]
+    const MAX_TEXTS: usize = dagnam_hygiene::MAX_TEXTS;
+
+    /// The most characters in one text of a batch.
+    #[pymodule_export]
+    const MAX_TEXT_CHARS: usize = dagnam_hygiene::MAX_TEXT_CHARS;
+
+    /// The most characters in all the texts of a batch.
+    #[pymodule_export]
+    const MAX_TOTAL_CHARS: usize = dagnam_hygiene::MAX_TOTAL_CHARS;
+
+    /// The most candidate pairs the walk compares.
+    #[pymodule_export]
+    const MAX_COMPARISONS: usize = dagnam_hygiene::MAX_COMPARISONS;
+
+    /// The most near-duplicate pairs a batch may have.
+    #[pymodule_export]
+    const MAX_PAIRS: usize = dagnam_hygiene::MAX_PAIRS;
 
     /// Reads the interpreter's Unicode version and selects the tables for it.
     #[pymodule_init]
@@ -75,6 +98,10 @@ mod _native {
         let selected = UnicodeVersion::from_unidata(&unidata);
         module.add("UNICODE_SUPPORTED", selected.is_some())?;
         module.add("UNICODE_VERSION", unidata.as_str())?;
+        module.add(
+            "NearDedupLimitError",
+            module.py().get_type::<NearDedupLimitError>(),
+        )?;
         // The first selection stays: a process has one Unicode database, so a later init (the
         // module imported again) keeps the first answer.
         let _ =
@@ -118,7 +145,8 @@ mod _native {
     }
 
     /// The indices of every normalised text that duplicates an earlier one, and each verified
-    /// `(earlier, later, similarity)` pair; `ValueError` when `threshold` is outside `(0, 1]`.
+    /// `(earlier, later, similarity)` pair; `ValueError` when `threshold` is outside `(0, 1]`, and
+    /// `NearDedupLimitError` (a `ValueError`) when the batch passes a limit.
     #[pyfunction]
     fn near_duplicates(
         py: Python<'_>,
@@ -138,16 +166,35 @@ mod _native {
             return Err(refused()?);
         }
         let value: f64 = threshold.extract()?;
-        let owned = texts
-            .extract::<Vec<Bound<'_, PyString>>>()?
+        let items = texts.extract::<Vec<Bound<'_, PyString>>>()?;
+        // The sizes are read off the `str` objects (a length costs nothing, whatever its size),
+        // before any text is copied out of Python.
+        let limit = |error: NearDedupError| NearDedupLimitError::new_err(error.to_string());
+        dagnam_hygiene::check_text_count(items.len()).map_err(limit)?;
+        let lengths = items
             .iter()
-            .map(utf8)
-            .collect::<PyResult<Vec<String>>>()?;
+            .map(|text| text.len())
+            .collect::<PyResult<Vec<usize>>>()?;
+        dagnam_hygiene::check_text_lengths(lengths).map_err(limit)?;
+        let owned = items.iter().map(utf8).collect::<PyResult<Vec<String>>>()?;
         let clustered = py.detach(move || {
             let borrowed: Vec<&str> = owned.iter().map(String::as_str).collect();
             dagnam_hygiene::near_duplicates(&borrowed, value)
         });
-        // `None` here only when a threshold above 0 in Python rounds to 0.0 as an f64.
-        clustered.ok_or_else(|| refused().unwrap_or_else(|e| e))
+        clustered.map_err(|error| match error {
+            // Only when a threshold above 0 in Python rounds to 0.0 as an f64.
+            NearDedupError::Threshold => refused().unwrap_or_else(|e| e),
+            limit_passed => limit(limit_passed),
+        })
     }
 }
+
+create_exception!(
+    dagnam_core.hygiene,
+    NearDedupLimitError,
+    PyValueError,
+    "A `near_duplicates` batch is larger than the core takes: more than `MAX_TEXTS` texts, a text \
+     of more than `MAX_TEXT_CHARS` characters, more than `MAX_TOTAL_CHARS` in all, more than \
+     `MAX_COMPARISONS` candidate pairs compared or more than `MAX_PAIRS` near-duplicate pairs. The \
+     message names the limit and its value and holds no text of the batch."
+);
