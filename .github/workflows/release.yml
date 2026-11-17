@@ -13,6 +13,7 @@ on:
     # Every input of a release, so a change to one rehearses itself before it can reach a tag.
     paths:
       - ".github/workflows/release.yml"
+      - ".github/workflows/release-build.yml"
       - ".github/scripts/release_dist.py"
       - ".github/ci-requirements.txt"
       - ".github/ci-build-requirements.txt"
@@ -34,8 +35,7 @@ concurrency:
 permissions: {}
 
 env:
-  MATURIN_VERSION: v1.15.0 # the maturin that builds the wheels and the sdist
-  UV_VERSION: "0.13.6"
+  UV_VERSION: "0.13.6" # keep equal to UV_VERSION in release-build.yml
 
 jobs:
   check:
@@ -92,266 +92,21 @@ jobs:
             exit 1
           fi
 
-  # Every wheel is built here and installed and tested in `test` below, because a cross-built
-  # wheel (Linux aarch64) cannot run on the machine that built it. `abi3` is one wheel per
-  # platform for CPython 3.12 and later; `ft` is the free-threaded wheel, built against 3.14t.
-  # PyO3 ignores its abi3 feature on a free-threaded interpreter, so the `ft` wheel is
-  # version-specific (cp314-cp314t), not abi3. The container images are pinned by digest; what
-  # maturin-action downloads inside them is a known accepted risk (RELEASE.md).
-  build:
-    name: Build ${{ matrix.platform.name }} ${{ matrix.kind }}
-    runs-on: ${{ matrix.platform.runner }}
-    timeout-minutes: 60
+  # Every wheel and the sdist are built, and each wheel installed and tested on its own platform,
+  # by the reusable workflow below. It is a separate file only to keep this one under the 500-line
+  # cap: everything the trusted publisher binds (the publish jobs, the environments) stays here.
+  build-test:
+    name: Build and test every wheel and the sdist
     permissions:
       contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        kind: [abi3, ft]
-        platform:
-          - name: linux-x86_64-gnu
-            runner: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            manylinux: "2_28"
-            container: quay.io/pypa/manylinux_2_28_x86_64:latest@sha256:d086f64cddcace250ef0f0073583c51b8298159303290a730c9f59bd91edfd2c
-          - name: linux-aarch64-gnu
-            runner: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            manylinux: "2_28"
-            container: ghcr.io/rust-cross/manylinux_2_28-cross:aarch64@sha256:ca53fa07ecf1c3e6408c51fbca64c036d9d29af832d3f8bb954910e89097f275
-          - name: linux-x86_64-musl
-            runner: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            manylinux: musllinux_1_2
-            container: ghcr.io/rust-cross/rust-musl-cross:x86_64-musl@sha256:3f1010eb48311dfde5d51f011163451940af34bd317355c4a8652ce6b4b61051
-          - name: linux-aarch64-musl
-            runner: ubuntu-latest
-            target: aarch64-unknown-linux-musl
-            manylinux: musllinux_1_2
-            container: ghcr.io/rust-cross/rust-musl-cross:aarch64-musl@sha256:02e790506c5f15a533bc05b3af8719b16a8a2314480f6f0fdc0166432035d9b4
-          - { name: macos-x86_64, runner: macos-15-intel, target: x86_64-apple-darwin }
-          - { name: macos-aarch64, runner: macos-15, target: aarch64-apple-darwin }
-          - { name: windows-x86_64, runner: windows-latest, target: x86_64-pc-windows-msvc }
-    env:
-      PY: ${{ matrix.kind == 'ft' && '3.14t' || '3.12' }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          version: ${{ env.UV_VERSION }}
-          enable-cache: false # this job's output is published: no restorable cache as an input
-      # The toolchain is the one rust-toolchain.toml pins, so the release compiles with the
-      # compiler the gate tested.
-      - name: Read the pinned Rust toolchain
-        id: rust
-        run: |
-          channel=$(awk -F'"' '/^channel/ {print $2}' rust-toolchain.toml)
-          echo "channel=$channel" >> "$GITHUB_OUTPUT"
-      # Linux: the container's own interpreter by NAME (the cross images hold other-architecture
-      # interpreters that cannot run, so a path would fail; maturin falls back to its bundled
-      # sysconfig by the name). Elsewhere: the uv-installed interpreter by path, and for 3.14t the
-      # file whose name ends in `t`, because maturin reads free-threaded intent from that name.
-      - name: Pick the interpreter
-        id: interp
-        run: |
-          if [ "$RUNNER_OS" = Linux ]; then
-            if [ "$PY" = 3.14t ]; then path=python3.14t; else path=python3.12; fi
-          else
-            uv python install "$PY"
-            path=$(uv python find "$PY")
-            path=${path//\\//}
-            if [ "$PY" = 3.14t ]; then
-              for candidate in python3.14t python3.14t.exe; do
-                if [ -e "${path%/*}/$candidate" ]; then path="${path%/*}/$candidate"; break; fi
-              done
-              case "$path" in *t | *t.exe) ;; *) echo "::error::no python3.14t executable next to $path"; exit 1 ;; esac
-            fi
-          fi
-          echo "path=$path" >> "$GITHUB_OUTPUT"
-      - name: Build the wheel
-        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
-        with:
-          maturin-version: ${{ env.MATURIN_VERSION }}
-          target: ${{ matrix.platform.target }}
-          manylinux: ${{ matrix.platform.manylinux }}
-          container: ${{ matrix.platform.container }}
-          rust-toolchain: ${{ steps.rust.outputs.channel }}
-          args: --release --locked --out dist -i ${{ steps.interp.outputs.path }}
-      - name: Check the wheel is the kind this row asked for
-        run: |
-          ls -l dist
-          shopt -s nullglob # an unmatched glob must be an empty list, not its own text
-          if [ "$PY" = 3.14t ]; then pattern='-cp314-cp314t-'; else pattern='-cp312-abi3-'; fi
-          kind=(dist/*"$pattern"*.whl)
-          all=(dist/*.whl)
-          if [ "${#kind[@]}" -ne 1 ] || [ "${#all[@]}" -ne 1 ]; then
-            echo "::error::want exactly one $pattern wheel and no other wheel in dist/"
-            exit 1
-          fi
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: dist-${{ matrix.platform.name }}-${{ matrix.kind }}
-          path: dist/
-          if-no-files-found: error
-
-  sdist:
-    name: Build the sdist and build it from source
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    permissions:
-      contents: read
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          version: ${{ env.UV_VERSION }}
-          enable-cache: false
-      - name: Build the sdist
-        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
-        with:
-          maturin-version: ${{ env.MATURIN_VERSION }}
-          command: sdist
-          args: --out dist
-      # Uploaded before anything else runs, so nothing that follows (a build backend, a test
-      # dependency) can change the file that is released.
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: dist-sdist
-          path: dist/
-          if-no-files-found: error
-      # PyPI refuses an sdist whose metadata names a License-File the archive does not hold (maturin
-      # 1.15 did that for LICENSE), after it has already taken the wheels: catch it before any upload.
-      - name: The sdist holds every file its metadata names
-        run: |
-          python3 - <<'PY'
-          import glob, tarfile
-          (path,) = glob.glob("dist/*.tar.gz")
-          with tarfile.open(path) as tar:
-              names = set(tar.getnames())
-              root = path.rsplit("/", 1)[1].removesuffix(".tar.gz")
-              info = tar.extractfile(f"{root}/PKG-INFO").read().decode()
-          wanted = [l.split(": ", 1)[1].strip() for l in info.splitlines() if l.startswith("License-File: ")]
-          assert wanted, "no License-File in the sdist metadata"
-          missing = [f for f in wanted if f"{root}/{f}" not in names]
-          assert not missing, f"named in PKG-INFO but not in the sdist: {missing}"
-          PY
-      # What a user without a wheel gets: the sdist is built from a COPY, with the hash-pinned
-      # maturin and pytest. The compiler is forced to the pin because the crates declare
-      # rust-version 1.99: a user needs one that new, and the test must not pass on an older one.
-      - name: Build the sdist copy in a clean environment and run the tests
-        env:
-          DAGNAM_EXPECT_UNICODE: "15.0.0"
-        run: |
-          RUSTUP_TOOLCHAIN=$(awk -F'"' '/^channel/ {print $2}' rust-toolchain.toml)
-          export RUSTUP_TOOLCHAIN
-          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
-          mkdir "$RUNNER_TEMP/sdist" && cp dist/*.tar.gz "$RUNNER_TEMP/sdist/"
-          uv venv --python 3.12 .venv-smoke
-          uv pip install --python .venv-smoke --require-hashes \
-            -r .github/ci-requirements.txt -r .github/ci-build-requirements.txt
-          uv pip install --python .venv-smoke --no-deps --no-build-isolation "$RUNNER_TEMP"/sdist/*.tar.gz
-          cd tests && ../.venv-smoke/bin/python -m pytest -q .
-
-  # Each wheel on a machine of its own platform, in a clean environment holding only the wheel
-  # and the hash-pinned pytest, running tests/ from outside the source tree. Linux aarch64 runs on
-  # a native arm64 runner (no emulation); the musllinux wheels run inside an Alpine container on
-  # that same runner. The two images are test-only and never touch a published file.
-  test:
-    name: Test ${{ matrix.platform.name }} ${{ matrix.kind }}
-    needs: build
-    runs-on: ${{ matrix.platform.runner }}
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        kind: [abi3, ft]
-        platform:
-          - { name: linux-x86_64-gnu, runner: ubuntu-latest }
-          - { name: linux-aarch64-gnu, runner: ubuntu-24.04-arm }
-          - { name: linux-x86_64-musl, runner: ubuntu-latest, musl: true }
-          - { name: linux-aarch64-musl, runner: ubuntu-24.04-arm, musl: true }
-          - { name: macos-x86_64, runner: macos-15-intel }
-          - { name: macos-aarch64, runner: macos-15 }
-          - { name: windows-x86_64, runner: windows-latest }
-    env:
-      PY: ${{ matrix.kind == 'ft' && '3.14t' || '3.12' }}
-      DAGNAM_EXPECT_UNICODE: ${{ matrix.kind == 'ft' && '16.0.0' || '15.0.0' }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: dist-${{ matrix.platform.name }}-${{ matrix.kind }}
-          path: dist/
-      - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          version: ${{ env.UV_VERSION }}
-          enable-cache: false
-      - name: Install the wheel into a clean environment and run the tests
-        if: ${{ !matrix.platform.musl }}
-        run: |
-          uv python install "$PY"
-          uv venv --python "$PY" .venv-smoke
-          uv pip install --python .venv-smoke --require-hashes -r .github/ci-requirements.txt
-          uv pip install --python .venv-smoke --no-deps dist/*.whl
-          # Absolute: a relative path through tests/ makes python3.14t warn about its prefix, fatal under -W error.
-          if [ "$RUNNER_OS" = Windows ]; then vpy="$PWD/.venv-smoke/Scripts/python.exe"; else vpy="$PWD/.venv-smoke/bin/python"; fi
-          # From tests/, so the import is the installed wheel and not a source tree.
-          (cd tests && "$vpy" -m pytest -q .)
-          "$vpy" scripts/gen_py_classes.py --check
-          if [ "$PY" = 3.14t ]; then
-            # The module must not switch the GIL back on at import.
-            (cd tests && "$vpy" -W error -c 'import sys, dagnam_core._native; assert sys._is_gil_enabled() is False')
-          fi
-      - name: Install the musllinux wheel in Alpine and run the tests
-        if: ${{ matrix.platform.musl && matrix.kind == 'abi3' }}
-        run: |
-          docker run --rm -e DAGNAM_EXPECT_UNICODE -v "$PWD/dist:/dist:ro" -v "$PWD/tests:/src-tests:ro" \
-            -v "$PWD/.github/ci-requirements.txt:/req.txt:ro" \
-            python:3.12-alpine@sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e732b8748e0d1f38f6dd89 sh -euc '
-            cp -r /src-tests /tests && cd /tests
-            python -m venv /tmp/venv
-            /tmp/venv/bin/pip install --quiet --require-hashes -r /req.txt
-            /tmp/venv/bin/pip install --quiet --no-deps /dist/*.whl
-            /tmp/venv/bin/python -m pytest -q -p no:cacheprovider .'
-      - name: Install the free-threaded musllinux wheel in Alpine and run the tests
-        if: ${{ matrix.platform.musl && matrix.kind == 'ft' }}
-        run: |
-          docker run --rm -e DAGNAM_EXPECT_UNICODE --entrypoint sh -v "$PWD/dist:/dist:ro" -v "$PWD/tests:/src-tests:ro" \
-            -v "$PWD/.github/ci-requirements.txt:/req.txt:ro" \
-            ghcr.io/astral-sh/uv:0.13.6-alpine@sha256:95f501aef734a5aaf167ff0640e02f215dcc7043ff48685de70328e5c55a57b0 -euc '
-            cp -r /src-tests /tests && cd /tests
-            uv venv --python 3.14t /tmp/venv
-            uv pip install --python /tmp/venv --require-hashes -r /req.txt
-            uv pip install --python /tmp/venv --no-deps /dist/*.whl
-            /tmp/venv/bin/python -m pytest -q -p no:cacheprovider .
-            /tmp/venv/bin/python -W error -c "import sys, dagnam_core._native; assert sys._is_gil_enabled() is False"'
+    uses: ./.github/workflows/release-build.yml
 
   # The release is exactly the 15 files below and nothing else: every other artifact of this
   # run (a stray one from a build or test job) fails here, and attest and publish take only the
   # re-uploaded `release-dist`. A rogue `release-dist` made earlier fails the upload.
   collect:
     name: Collect and check the release files
-    needs: [test, sdist]
+    needs: build-test
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

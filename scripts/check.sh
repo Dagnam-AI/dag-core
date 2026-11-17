@@ -66,8 +66,8 @@ shellcheck scripts/*.sh
 # does not fetch (it must work offline); CI's wheel job runs `--check` under 3.12, 3.13 and 3.14,
 # and the release workflow under 3.12 and 3.14t. The Rust tests compare every table with
 # corpus/classes.jsonl on every code point in all cases.
-.venv-gate/bin/ruff check python tests scripts
-.venv-gate/bin/ruff format --check python tests scripts
+.venv-gate/bin/ruff check python tests scripts .github/scripts
+.venv-gate/bin/ruff format --check python tests scripts .github/scripts
 .venv-gate/bin/python scripts/gen_py_classes.py --check
 rm -rf target/wheels
 .venv-gate/bin/maturin build --locked --release --out target/wheels
@@ -75,3 +75,4 @@ uv pip install --python .venv-gate --force-reinstall target/wheels/dagnam_core-*
 .venv-gate/bin/pyright --pythonpath .venv-gate/bin/python
 (cd tests && ../.venv-gate/bin/python -m mypy.stubtest dagnam_core.hygiene dagnam_core._native) # stub matches the wheel
 (cd tests && ../.venv-gate/bin/python -m pytest -q .)
+.venv-gate/bin/python -m unittest discover -s .github/scripts # the release file checks
