@@ -9,9 +9,9 @@ use crate::guard::{high_water, reset_high_water};
 
 /// The result of `call` and the most heap it had live at once beyond what was live before it.
 fn peak_of<T>(call: impl FnOnce() -> T) -> (T, usize) {
-    let before = reset_high_water();
+    reset_high_water();
     let result = call();
-    (result, high_water().saturating_sub(before))
+    (result, high_water())
 }
 
 const KIB: usize = 1 << 10;

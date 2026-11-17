@@ -4,6 +4,7 @@
 //! cap one such mutant reached tens of gigabytes in seconds and took the machine down. Aborting
 //! makes the mutant fail its test, which is what "caught" means. No test comes near the cap.
 use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
 use std::io::Write;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -13,21 +14,29 @@ const CAP: usize = 1 << 30;
 /// Heap bytes live now.
 static LIVE: AtomicUsize = AtomicUsize::new(0);
 
-/// The most heap bytes live at once since `reset_high_water`.
-static HIGH_WATER: AtomicUsize = AtomicUsize::new(0);
-
-/// Starts a measurement: the high-water mark is what is live now. Read it with `high_water`. The
-/// counters are the process's, so a test that measures runs in a process of its own (nextest does
-/// that; `cargo test` runs tests as threads of one, and another test's heap would count).
-pub(crate) fn reset_high_water() -> usize {
-    let live = LIVE.load(Ordering::Relaxed);
-    HIGH_WATER.store(live, Ordering::Relaxed);
-    live
+thread_local! {
+    /// Heap bytes this thread has allocated net of what it has freed since `reset_high_water`
+    /// (negative when it frees what was live before), and the most that figure has been.
+    static MINE: Cell<(isize, isize)> = const { Cell::new((0, 0)) };
 }
 
-/// The most heap bytes live at once since `reset_high_water`.
+/// Starts a measurement on this thread. Read it with `high_water`. The mark is the thread's own,
+/// so another test running on another thread of the same process (`cargo test` runs tests as
+/// threads of one) does not count; a measured call that spawns threads would not count their heap.
+pub(crate) fn reset_high_water() {
+    MINE.set((0, 0));
+}
+
+/// The most heap bytes this thread has had live at once beyond what was live at `reset_high_water`.
 pub(crate) fn high_water() -> usize {
-    HIGH_WATER.load(Ordering::Relaxed)
+    usize::try_from(MINE.get().1).unwrap_or(0)
+}
+
+/// Records `delta` bytes (negative: freed) on this thread's measurement.
+fn track(delta: isize) {
+    let (live, peak) = MINE.get();
+    let live = live + delta;
+    MINE.set((live, peak.max(live)));
 }
 
 /// The system allocator with a cap.
@@ -42,10 +51,15 @@ fn trip() -> ! {
     std::process::abort()
 }
 
+/// A size as a signed number (no allocation is larger than `isize::MAX`).
+fn signed(bytes: usize) -> isize {
+    isize::try_from(bytes).unwrap_or(isize::MAX)
+}
+
 /// Adds `bytes` to the live total and stops the process past the cap.
 fn grow(bytes: usize) {
     let live = LIVE.fetch_add(bytes, Ordering::Relaxed) + bytes;
-    HIGH_WATER.fetch_max(live, Ordering::Relaxed);
+    track(signed(bytes));
     if live > CAP {
         trip();
     }
@@ -66,6 +80,7 @@ unsafe impl GlobalAlloc for Capped {
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         LIVE.fetch_sub(layout.size(), Ordering::Relaxed);
+        track(-signed(layout.size()));
         unsafe { System.dealloc(ptr, layout) }
     }
 
@@ -74,6 +89,7 @@ unsafe impl GlobalAlloc for Capped {
             grow(new_size - layout.size());
         } else {
             LIVE.fetch_sub(layout.size() - new_size, Ordering::Relaxed);
+            track(-signed(layout.size() - new_size));
         }
         unsafe { System.realloc(ptr, layout, new_size) }
     }
