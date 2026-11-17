@@ -112,7 +112,7 @@ struct Refused {
 fn bare_spans(text: &str, version: UnicodeVersion) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
     let mut run: Option<usize> = None; // the run of value characters containing `start`
-    let mut taken_end = 0; // where the last credential taken ended
+    let mut taken_end: usize = 0; // where the last credential taken ended
     let mut refused: Option<Refused> = None;
     let mut position = 0;
     // Every head starts after the position the last one left, so the text's length bounds them.
@@ -126,7 +126,9 @@ fn bare_spans(text: &str, version: UnicodeVersion) -> Vec<(usize, usize)> {
         let name = head.get(1).map_or("", |name| name.as_str());
         let start = whole.end();
         position = super::one_on(text, whole.start());
-        if start < taken_end {
+        // How far this value starts inside the credential last taken: none when it starts at or
+        // after its end (a name whose value starts there has nothing left of it to read).
+        if taken_end.saturating_sub(start) > 0 {
             continue;
         }
         let inside = refused

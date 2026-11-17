@@ -17,6 +17,8 @@ use super::corpus::{Part, assemble};
 const SMALL: usize = 4_000;
 /// How many times larger the larger timed text is than the smaller.
 const FACTOR: usize = 4;
+/// The characters of the smaller text where the cost of reading names inside a credential shows.
+const LONG: usize = 64_000;
 /// A sample so small that any finder, even a quadratic one, answers it at once.
 const TINY: usize = 500;
 
@@ -24,7 +26,7 @@ const TINY: usize = 500;
 /// the test says so instead of waiting for it. A linear finder reads the largest text here in
 /// milliseconds, even in a debug build on a busy machine; a quadratic one that is stuck must
 /// fail the test well inside the 20 seconds `cargo mutants` allows a run.
-const PATIENCE: Duration = Duration::from_secs(2);
+const PATIENCE: Duration = Duration::from_secs(4);
 
 /// One line of `shapes.jsonl`.
 #[derive(Deserialize)]
@@ -73,13 +75,14 @@ fn best_of_three(text: &Arc<String>) -> Result<Duration, String> {
     Ok(best)
 }
 
-/// Whether four times the text took less than eight times as long. A quiet machine settles it
+/// Whether a text `k` times as large took less than `2k` times as long. A quiet machine settles it
 /// with one run of each; a busy one (parallel tests) gets two more attempts with the best of
 /// three runs each, because a quadratic finder fails every attempt and noise does not.
 fn scales_linearly(small: &Arc<String>, large: &Arc<String>) -> Result<(), String> {
     // A floor keeps timer noise on a fast finder from deciding the ratio.
     let floor = Duration::from_millis(5);
-    let within = |a: Duration, b: Duration| b < 8 * a.max(floor);
+    let ratio = u32::try_from(2 * large.len() / small.len()).unwrap();
+    let within = |a: Duration, b: Duration| b < ratio * a.max(floor);
     let (a, b) = (timed(small)?, timed(large)?);
     if within(a, b) {
         return Ok(());
@@ -128,5 +131,23 @@ fn four_times_the_text_takes_less_than_eight_times_as_long() {
         if let Err(took) = scales_linearly(&small, &large) {
             panic!("{}: {took}", shape.name);
         }
+    }
+}
+
+/// Every name inside a credential taken whose value starts inside it is passed over, not judged:
+/// judged, each would read the rest of the credential, so the cost would grow with the square of
+/// its length. That cost shows only on a text far larger than the shapes above use, so this is a
+/// text of its own: a name (case 1908's `secret=`) and three characters, which make a credential
+/// that takes the rest of the text, then a name (case 1958's `password=`) repeated inside it.
+#[test]
+fn names_inside_a_credential_taken_are_passed_over() {
+    let fill = |c: &str| Part::Fill(c.into());
+    let head = assemble(&[Part::Cut(1908, 12, 19), fill("Z"), fill("x"), fill("9")]);
+    let unit = assemble(&[Part::Cut(1958, 8, 17)]);
+    let text_of = |size: usize| Arc::new(text_of(&head, &unit, "", size));
+    let (small, large) = (text_of(LONG), text_of(16 * LONG));
+    assert_eq!(find_secrets(&small).len(), 1);
+    if let Err(took) = scales_linearly(&small, &large) {
+        panic!("{took}");
     }
 }
