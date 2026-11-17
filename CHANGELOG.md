@@ -56,18 +56,29 @@ All notable changes to `dagnam-core` are listed here, newest first. The version 
   them in the reference's order after the threshold: the count, then each text's length from
   the `str` object (before any text is copied out of Python) and the running total, then the
   walk, which counts the pairs and holds nothing; the result is built only for a batch that has
-  passed, in exactly the memory of its pairs. The reference reads the same size limits first on
-  the raw rows, before it normalises them: that reading stays in the caller, which has the rows.
+  passed. The count of a sequence is read before any item is collected, so a list of ten million
+  items is refused without a copy of it. The reference reads the same size limits first on the
+  raw rows, before it normalises them: that reading stays in the caller, which has the rows.
   `hygiene.CORE_API` stays 2.
 - `near_duplicates` no longer holds the candidate pairs. They are streamed in the reference's
   order (the lower text ascending, each one's partners ascending, each pair once) from a pointer
-  per text and band, where the 0.1 line built an ordered set of all of them. Peak resident memory
-  (release build, measured): 3,000 identical texts 115 MB, was 274 MB; 6,000 identical texts
-  447 MB, was 1,078 MB; 3,000 texts that share a word 7 MB, was 73 MB. The result is unchanged.
+  per text and band, where the 0.1 line built an ordered set of all of them. The Rust crate alone,
+  peak resident memory of a release build: 3,000 identical texts 115 MB, was 274 MB; 3,000 texts
+  that share a word 7 MB, was 73 MB. The result is unchanged.
+- The Python result is built from shared objects: one `int` per text index and one `float` per
+  distinct similarity (at most 129), each pair a tuple of three of them, read from the core a
+  chunk at a time so the pairs are never all held in Rust and in Python together. A pair costs
+  about 73 bytes through Python (the tuple and its slot in the list). Peak resident memory of a
+  fresh process, release wheel, measured on the whole call: 3,000 identical texts (4,498,500
+  pairs) 362 MB, and exactly `MAX_PAIRS` pairs 1,488 MB; the pure-Python reference measured 367 MB
+  and 1,471 MB on the same two batches, so the core is at the reference's footprint (1% above it
+  at `MAX_PAIRS`), not under it.
 - Rust: `dagnam_hygiene::near_duplicates` returns `Result<_, NearDedupError>` (was `Option`; the
   threshold is `NearDedupError::Threshold`); new `near_duplicates_within(texts, threshold,
-  Limits)`, `Limits`, the `MAX_*` constants and `check_text_count` / `check_text_lengths`, which a
-  binding calls on the sizes it reads off its own strings before it copies them.
+  Limits)`, `Limits`, `Batch` (the same checks, then the pairs read in chunks), the `MAX_*`
+  constants and `check_text_count` / `check_text_lengths`, which a binding calls on the sizes it
+  reads off its own strings before it copies them. The two limit errors carry the limit in force,
+  so their message names a smaller `Limits` value, as the reference does with a patched constant.
 - The reference corpus is re-exported from `dagnam-contracts` at `8ee5f42` (the credentials and
   findings files; the others are byte-identical): see `corpus/README.md`.
 

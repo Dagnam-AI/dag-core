@@ -13,9 +13,10 @@
 //! under the tables of that version. An interpreter whose version the core has no tables for
 //! (see `dagnam_hygiene::UnicodeVersion`) still imports the module, reports it through
 //! `UNICODE_SUPPORTED`, and refuses every binding with a `RuntimeError`.
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use dagnam_hygiene::UnicodeVersion;
+use dagnam_hygiene::{Batch, Limits, UnicodeVersion};
 use pyo3::create_exception;
 use pyo3::exceptions::{PyRuntimeError, PyUnicodeEncodeError, PyValueError};
 use pyo3::prelude::*;
@@ -59,9 +60,12 @@ mod _native {
     use dagnam_hygiene::NearDedupError;
     use pyo3::exceptions::{PyTypeError, PyValueError};
     use pyo3::prelude::*;
-    use pyo3::types::{PyModule, PyString, PyTuple};
+    use pyo3::types::{PyList, PyModule, PySequence, PyString, PyTuple};
 
-    use super::{NearDedupLimitError, SELECTION, Selection, UnicodeVersion, utf8, version};
+    use super::{
+        Batch, CHUNK, Limits, NearDedupLimitError, SELECTION, Selection, Shared, UnicodeVersion,
+        utf8, version,
+    };
 
     /// Bumped when any binding changes meaning; the Python caller compares it with the value it was written against.
     #[pymodule_export]
@@ -147,12 +151,17 @@ mod _native {
     /// The indices of every normalised text that duplicates an earlier one, and each verified
     /// `(earlier, later, similarity)` pair; `ValueError` when `threshold` is outside `(0, 1]`, and
     /// `NearDedupLimitError` (a `ValueError`) when the batch passes a limit.
+    ///
+    /// The result is built from shared objects: one `int` per text index and one `float` per
+    /// distinct similarity (at most 129), each pair a tuple of three of them, so a pair costs the
+    /// tuple and its slot in the list. The pairs are read from the core a chunk at a time and the
+    /// chunk is freed once converted, so Rust never holds them all next to the Python list.
     #[pyfunction]
-    fn near_duplicates(
-        py: Python<'_>,
-        texts: &Bound<'_, PyAny>,
-        threshold: &Bound<'_, PyAny>,
-    ) -> PyResult<(Vec<usize>, Vec<dagnam_hygiene::Pair>)> {
+    fn near_duplicates<'py>(
+        py: Python<'py>,
+        texts: &Bound<'py, PyAny>,
+        threshold: &Bound<'py, PyAny>,
+    ) -> PyResult<(Bound<'py, PyList>, Bound<'py, PyList>)> {
         version()?;
         // The reference's own check, on the caller's own object and before any text is read; the
         // message is the f-string's `{threshold}`, so an int reads `0`, not `0.0`.
@@ -166,10 +175,17 @@ mod _native {
             return Err(refused()?);
         }
         let value: f64 = threshold.extract()?;
-        let items = texts.extract::<Vec<Bound<'_, PyString>>>()?;
+        let limit = |error: NearDedupError| NearDedupLimitError::new_err(error.to_string());
+        // The count first, off the sequence itself: a batch over the limit is refused before a
+        // pointer of it is collected. (A `str` is a sequence too; the extraction below refuses it.)
+        if !texts.is_instance_of::<PyString>()
+            && let Ok(sequence) = texts.cast::<PySequence>()
+        {
+            dagnam_hygiene::check_text_count(sequence.len()?).map_err(limit)?;
+        }
+        let items = texts.extract::<Vec<Bound<'py, PyString>>>()?;
         // The sizes are read off the `str` objects (a length costs nothing, whatever its size),
         // before any text is copied out of Python.
-        let limit = |error: NearDedupError| NearDedupLimitError::new_err(error.to_string());
         dagnam_hygiene::check_text_count(items.len()).map_err(limit)?;
         let lengths = items
             .iter()
@@ -177,15 +193,81 @@ mod _native {
             .collect::<PyResult<Vec<usize>>>()?;
         dagnam_hygiene::check_text_lengths(lengths).map_err(limit)?;
         let owned = items.iter().map(utf8).collect::<PyResult<Vec<String>>>()?;
-        let clustered = py.detach(move || {
+        let walked = py.detach(move || {
             let borrowed: Vec<&str> = owned.iter().map(String::as_str).collect();
-            dagnam_hygiene::near_duplicates(&borrowed, value)
+            Batch::new(&borrowed, value, Limits::DEFAULT)
         });
-        clustered.map_err(|error| match error {
+        let mut batch = walked.map_err(|error| match error {
             // Only when a threshold above 0 in Python rounds to 0.0 as an f64.
             NearDedupError::Threshold => refused().unwrap_or_else(|e| e),
             limit_passed => limit(limit_passed),
-        })
+        })?;
+        let mut shared = Shared::new(items.len());
+        let pairs = PyList::empty(py);
+        let mut chunk = Vec::with_capacity(CHUNK.min(batch.pair_count()));
+        loop {
+            chunk.clear();
+            if py.detach(|| batch.fill(&mut chunk, CHUNK)) == 0 {
+                break;
+            }
+            py.check_signals()?;
+            for &(low, high, score) in &chunk {
+                let pair = [
+                    shared.int(py, low)?,
+                    shared.int(py, high)?,
+                    shared.float(py, score)?,
+                ];
+                pairs.append(PyTuple::new(py, pair)?)?;
+            }
+        }
+        drop(chunk);
+        let duplicates = PyList::empty(py);
+        for index in batch.duplicates() {
+            duplicates.append(shared.int(py, index)?)?;
+        }
+        Ok((duplicates, pairs))
+    }
+}
+
+/// How many pairs are read from the core, and held in Rust, at a time.
+const CHUNK: usize = 1 << 16;
+
+/// The objects the pairs of one result share: each text index is one `int`, each similarity one
+/// `float`, made when first used.
+struct Shared<'py> {
+    ints: Vec<Option<Bound<'py, PyAny>>>,
+    floats: HashMap<u64, Bound<'py, PyAny>>,
+}
+
+impl<'py> Shared<'py> {
+    fn new(texts: usize) -> Self {
+        Self {
+            ints: vec![None; texts],
+            floats: HashMap::new(),
+        }
+    }
+
+    /// The `int` of text `index`.
+    fn int(&mut self, py: Python<'py>, index: usize) -> PyResult<Bound<'py, PyAny>> {
+        if let Some(Some(made)) = self.ints.get(index) {
+            return Ok(made.clone());
+        }
+        let made = index.into_pyobject(py)?.into_any();
+        if let Some(slot) = self.ints.get_mut(index) {
+            *slot = Some(made.clone());
+        }
+        Ok(made)
+    }
+
+    /// The `float` of `score`: a similarity is a count of agreeing positions over 128, so a
+    /// result holds at most 129 distinct ones.
+    fn float(&mut self, py: Python<'py>, score: f64) -> PyResult<Bound<'py, PyAny>> {
+        if let Some(made) = self.floats.get(&score.to_bits()) {
+            return Ok(made.clone());
+        }
+        let made = score.into_pyobject(py)?.into_any();
+        self.floats.insert(score.to_bits(), made.clone());
+        Ok(made)
     }
 }
 

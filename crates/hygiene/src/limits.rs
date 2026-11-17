@@ -38,9 +38,15 @@ pub enum NearDedupError {
     /// More than [`MAX_TOTAL_CHARS`] characters in all.
     TooManyChars,
     /// More candidate pairs than the walk may compare (see [`Limits`]).
-    TooManyComparisons,
+    TooManyComparisons {
+        /// The limit in force: [`MAX_COMPARISONS`] unless the call was given smaller [`Limits`].
+        limit: usize,
+    },
     /// More near-duplicate pairs than the batch may have (see [`Limits`]).
-    TooManyPairs,
+    TooManyPairs {
+        /// The limit in force: [`MAX_PAIRS`] unless the call was given smaller [`Limits`].
+        limit: usize,
+    },
 }
 
 impl fmt::Display for NearDedupError {
@@ -58,14 +64,13 @@ impl fmt::Display for NearDedupError {
                 f,
                 "the texts hold more than MAX_TOTAL_CHARS ({MAX_TOTAL_CHARS}) characters"
             ),
-            Self::TooManyComparisons => {
-                write!(
-                    f,
-                    "more than MAX_COMPARISONS ({MAX_COMPARISONS}) comparisons"
-                )
+            // The name is the reference's constant; the number is the limit in force, which the
+            // reference prints when its constant is patched, as a test or a differential may do.
+            Self::TooManyComparisons { limit } => {
+                write!(f, "more than MAX_COMPARISONS ({limit}) comparisons")
             }
-            Self::TooManyPairs => {
-                write!(f, "more than MAX_PAIRS ({MAX_PAIRS}) near-duplicate pairs")
+            Self::TooManyPairs { limit } => {
+                write!(f, "more than MAX_PAIRS ({limit}) near-duplicate pairs")
             }
         }
     }
@@ -168,12 +173,22 @@ mod tests {
                 "the texts hold more than MAX_TOTAL_CHARS (20000000) characters",
             ),
             (
-                NearDedupError::TooManyComparisons,
+                NearDedupError::TooManyComparisons {
+                    limit: MAX_COMPARISONS,
+                },
                 "more than MAX_COMPARISONS (40000000) comparisons",
             ),
             (
-                NearDedupError::TooManyPairs,
+                NearDedupError::TooManyPairs { limit: MAX_PAIRS },
                 "more than MAX_PAIRS (20000000) near-duplicate pairs",
+            ),
+            (
+                NearDedupError::TooManyComparisons { limit: 7 },
+                "more than MAX_COMPARISONS (7) comparisons",
+            ),
+            (
+                NearDedupError::TooManyPairs { limit: 3 },
+                "more than MAX_PAIRS (3) near-duplicate pairs",
             ),
         ];
         for (error, message) in messages {

@@ -69,37 +69,127 @@ fn similarity(signatures: &[Signature], low: usize, high: usize) -> f64 {
     f64::from(agree) / WIDTH
 }
 
-/// The pairs of verified near-duplicates in the order of the walk, or the limit the walk passes.
-///
-/// The walk is the reference's: the candidate pairs in ascending order, each counted before it is
-/// compared, so the call stops instead of making comparison `limits.comparisons + 1`, and each
+/// The walk over the candidate pairs, in the reference's order: each pair counted before it is
+/// compared, so the walk stops instead of making comparison `limits.comparisons + 1`, and each
 /// pair at or over the threshold counted before it is kept, so it stops instead of keeping pair
-/// `limits.pairs + 1`. After an `Err` the iterator is not read again.
-fn verified(
-    signatures: &[Signature],
+/// `limits.pairs + 1`. After an `Err` the walk is not read again.
+struct Walk {
+    candidates: Candidates,
     threshold: f64,
     limits: Limits,
-) -> impl Iterator<Item = Result<Pair, NearDedupError>> + '_ {
-    let mut candidates = Candidates::new(signatures);
-    let (mut comparisons, mut found) = (0_usize, 0_usize);
-    std::iter::from_fn(move || {
+    comparisons: usize,
+    found: usize,
+}
+
+impl Walk {
+    fn new(signatures: &[Signature], threshold: f64, limits: Limits) -> Self {
+        Self {
+            candidates: Candidates::new(signatures),
+            threshold,
+            limits,
+            comparisons: 0,
+            found: 0,
+        }
+    }
+
+    /// The next verified pair, the limit the walk passes, or `None` at its end.
+    fn step(&mut self, signatures: &[Signature]) -> Option<Result<Pair, NearDedupError>> {
         loop {
-            let (low, high) = candidates.next()?;
-            comparisons += 1;
-            if comparisons > limits.comparisons {
-                return Some(Err(NearDedupError::TooManyComparisons));
+            let (low, high) = self.candidates.next()?;
+            self.comparisons += 1;
+            if self.comparisons > self.limits.comparisons {
+                return Some(Err(NearDedupError::TooManyComparisons {
+                    limit: self.limits.comparisons,
+                }));
             }
             let score = similarity(signatures, low, high);
-            if score < threshold {
+            if score < self.threshold {
                 continue;
             }
-            found += 1;
-            if found > limits.pairs {
-                return Some(Err(NearDedupError::TooManyPairs));
+            self.found += 1;
+            if self.found > self.limits.pairs {
+                return Some(Err(NearDedupError::TooManyPairs {
+                    limit: self.limits.pairs,
+                }));
             }
             return Some(Ok((low, high, score)));
         }
-    })
+    }
+}
+
+/// The most pairs the Rust result reserves room for before it holds any: a batch of `usize::MAX`
+/// limits could name far more than memory has, and the vector grows past this as it must.
+const RESERVE: usize = 1 << 20;
+
+/// A batch that has passed its checks and its limits, its pairs not yet read.
+///
+/// [`Batch::new`] runs the checks of [`near_duplicates_within`] and counts the pairs, holding
+/// nothing of them. The pairs are then read in chunks with [`Batch::fill`], so a caller that must
+/// convert them (a binding making Python objects) never holds all of them in Rust as well.
+pub struct Batch {
+    signatures: Vec<Signature>,
+    walk: Walk,
+    parent: Vec<usize>,
+    pair_count: usize,
+}
+
+impl Batch {
+    /// The checks of [`near_duplicates_within`]: the threshold, the sizes, and the walk's limits,
+    /// the last by walking once to count.
+    ///
+    /// # Errors
+    ///
+    /// A [`NearDedupError`]: the threshold, or the first limit the batch passes.
+    pub fn new(texts: &[&str], threshold: f64, limits: Limits) -> Result<Self, NearDedupError> {
+        // Written as a conjunction so that NaN, which compares false, is refused too.
+        let valid = threshold > 0.0 && threshold <= 1.0;
+        if !valid {
+            return Err(NearDedupError::Threshold);
+        }
+        check_text_count(texts.len())?;
+        check_text_lengths(texts.iter().map(|text| text.chars().count()))?;
+        let signatures: Vec<Signature> = texts.iter().map(|text| sign(text)).collect();
+        let mut counting = Walk::new(&signatures, threshold, limits);
+        let mut pair_count = 0_usize;
+        while let Some(pair) = counting.step(&signatures) {
+            pair?;
+            pair_count += 1;
+        }
+        Ok(Self {
+            walk: Walk::new(&signatures, threshold, Limits::NONE),
+            parent: (0..texts.len()).collect(),
+            signatures,
+            pair_count,
+        })
+    }
+
+    /// How many pairs the batch has: what [`Batch::fill`] will add up to, in all.
+    #[must_use]
+    pub const fn pair_count(&self) -> usize {
+        self.pair_count
+    }
+
+    /// Appends the next `max` pairs, or the rest of them if fewer, to `out`, in the order of the
+    /// walk, and returns how many it appended (none when they are all read).
+    pub fn fill(&mut self, out: &mut Vec<Pair>, max: usize) -> usize {
+        let before = out.len();
+        // No limit on this walk, so every item is an `Ok`: the counting walk found what this does.
+        while out.len() - before < max
+            && let Some(Ok(pair)) = self.walk.step(&self.signatures)
+        {
+            union(&mut self.parent, pair.0, pair.1);
+            out.push(pair);
+        }
+        out.len() - before
+    }
+
+    /// The indices of every text that duplicates an earlier one. Read after the last pair.
+    #[must_use]
+    pub fn duplicates(mut self) -> Vec<usize> {
+        (0..self.parent.len())
+            .filter(|&index| find(&mut self.parent, index) != index)
+            .collect()
+    }
 }
 
 /// Clusters normalised texts: the indices of every text that duplicates an earlier one,
@@ -134,7 +224,7 @@ pub fn near_duplicates(
 ///    limits; a caller that has the raw rows reads the first before it normalises anything);
 /// 3. the walk over the candidate pairs, counting comparisons and near-duplicate pairs. The walk
 ///    is run once to count, holding nothing, and again only when the batch is inside the limits,
-///    to build the result in exactly the memory it needs.
+///    to build the result, which has room for its pairs at once (up to a fixed number of them).
 ///
 /// # Errors
 ///
@@ -144,27 +234,10 @@ pub fn near_duplicates_within(
     threshold: f64,
     limits: Limits,
 ) -> Result<(Vec<usize>, Vec<Pair>), NearDedupError> {
-    // Written as a conjunction so that NaN, which compares false, is refused too.
-    let valid = threshold > 0.0 && threshold <= 1.0;
-    if !valid {
-        return Err(NearDedupError::Threshold);
-    }
-    check_text_count(texts.len())?;
-    check_text_lengths(texts.iter().map(|text| text.chars().count()))?;
-    let signatures: Vec<Signature> = texts.iter().map(|text| sign(text)).collect();
-    let count = verified(&signatures, threshold, limits)
-        .try_fold(0_usize, |count, pair| pair.map(|_| count + 1))?;
-    let mut parent: Vec<usize> = (0..texts.len()).collect();
-    let mut pairs = Vec::with_capacity(count);
-    // No limit here, so every item is an `Ok`: the first walk has counted what this one finds.
-    for (low, high, score) in verified(&signatures, threshold, Limits::NONE).flatten() {
-        pairs.push((low, high, score));
-        union(&mut parent, low, high);
-    }
-    let duplicates = (0..texts.len())
-        .filter(|&index| find(&mut parent, index) != index)
-        .collect();
-    Ok((duplicates, pairs))
+    let mut batch = Batch::new(texts, threshold, limits)?;
+    let mut pairs = Vec::with_capacity(batch.pair_count().min(RESERVE));
+    while batch.fill(&mut pairs, RESERVE) > 0 {}
+    Ok((batch.duplicates(), pairs))
 }
 
 #[cfg(test)]

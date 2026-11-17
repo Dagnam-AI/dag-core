@@ -104,9 +104,13 @@ def near_duplicates(
     instead of making the one past the limit) or more than `MAX_PAIRS` near-duplicate pairs (the
     same). Each raises `NearDedupLimitError`, a `ValueError`. The sizes are read on the texts as
     given, which the caller has normalised; a caller that holds the raw rows reads them there
-    first. The result is built only after the batch has passed, in the memory it needs, and it
-    still grows with the square of the identical texts (about 70 bytes a pair once it is Python
-    objects), which `MAX_PAIRS` bounds.
+    first. The result is built only after the batch has passed, and it still grows with the
+    square of the identical texts. It is made of shared objects (one `int` per text index, one
+    `float` per distinct similarity), so a pair costs its 3-tuple and the list slot, about 73
+    bytes: 3,000 identical texts (4.5 million pairs) peak at 362 MB resident and a result of
+    exactly `MAX_PAIRS` pairs at 1,488 MB, measured in a fresh process, about the pure-Python
+    reference's own footprint. `MAX_PAIRS` bounds it.
 
-    The call releases the GIL and cannot be interrupted: a Ctrl+C is seen when it returns.
+    The call releases the GIL. A Ctrl+C is seen once the counting walk has finished, between the
+    chunks the result is built from, not during the walk.
     """

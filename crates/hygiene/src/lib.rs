@@ -14,7 +14,7 @@ mod text;
 mod unicode;
 
 pub use candidates::BANDS;
-pub use cluster::{Pair, SHINGLE_SIZE, near_duplicates, near_duplicates_within};
+pub use cluster::{Batch, Pair, SHINGLE_SIZE, near_duplicates, near_duplicates_within};
 pub use contact::{find_emails, find_phones};
 pub use credentials::find_secrets;
 pub use detectors::{
