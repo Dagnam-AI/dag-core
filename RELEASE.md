@@ -85,9 +85,15 @@ PyPI takes no version back, so every step before the last is there to stop a bad
   `.github/scripts/build_stub_wheel.py`, stdlib only, byte-reproducible) is what pip and uv install
   where no native wheel fits, instead of building the sdist; its `dagnam_core.hygiene` raises
   `ImportError`, which `dagnam-contracts` catches. A wheel is preferred to an sdist and a native
-  wheel to this one, so supported platforms are unaffected. During an upload a native wheel can
-  land after the stub, so a user installing in those minutes may get the stub: `pip install
-  --force-reinstall dagnam-core` fixes it once the release is complete.
+  wheel to this one, so supported platforms are unaffected. `--no-binary` still asks for the sdist.
+  Upload order protects the window: twine uploads the wheels before the sdist, and the file glob
+  puts the `cp3...` wheels before `py3-none-any`, so the stub lands after the native wheels and the
+  sdist last. While a release is half uploaded the project page lists only some files; a platform
+  whose native wheel is already up installs it, and a platform that needs the stub gets "no
+  matching distribution" (never a build) until the stub lands. Install again once the release is
+  complete. There is no 3.13t native wheel: PyO3 0.29 and later dropped
+  free-threaded CPython older than 3.14, and 0.28.3, the newest release that supports it, carries
+  RUSTSEC-2026-0177; do not downgrade PyO3 to get one.
 - **A release that stops at TestPyPI** (a file TestPyPI or PyPI refuses, a smoke failure after the
   upload) leaves files on an index, so its tag is spent: **a tag cannot be reused**, and the fix is
   the next patch version, not a moved or re-pushed tag. `0.1.0` is the example: its sdist lacked

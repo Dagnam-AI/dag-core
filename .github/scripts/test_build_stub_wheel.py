@@ -15,6 +15,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 import zipfile
 from pathlib import Path
@@ -32,6 +33,21 @@ license = "Apache-2.0"
 classifiers = ["Programming Language :: Rust", "Typing :: Typed"]
 """
 DIST_INFO = f"dagnam_core-{VERSION}.dist-info"
+# Every key of pyproject.toml's [project] table is either copied into the stub's METADATA or left
+# out on purpose. A new key fails test_every_project_key_is_copied_or_deliberately_omitted until
+# someone decides which; the stub must never carry dependencies (it would drag them in for
+# nothing), nor entry points or scripts (it has no code to run).
+COPIED = {"name", "version", "description", "requires-python", "license", "classifiers"}
+OMITTED = {
+    "dependencies",
+    "optional-dependencies",
+    "scripts",
+    "gui-scripts",
+    "entry-points",
+    "readme",  # the stub has its own description
+    "license-files",  # LICENSE is added by name
+    "dynamic",
+}
 
 
 class StubWheel(unittest.TestCase):
@@ -98,6 +114,20 @@ class StubWheel(unittest.TestCase):
                 raw = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=")
                 self.assertEqual((digest, size), (f"sha256={raw.decode()}", str(len(data))))
         self.assertEqual(rows[-1], [f"{DIST_INFO}/RECORD", "", ""])
+
+    def test_every_project_key_is_copied_or_deliberately_omitted(self) -> None:
+        real = Path(__file__).resolve().parents[2] / "pyproject.toml"
+        keys = set(tomllib.loads(real.read_text())["project"])
+        self.assertEqual(keys - COPIED - OMITTED, set(), "decide: copy it into the stub or omit it")
+        self.assertEqual(COPIED & OMITTED, set())
+
+    def test_dependencies_in_pyproject_never_reach_the_stub(self) -> None:
+        (self.root / "pyproject.toml").write_text(PYPROJECT + 'dependencies = ["somepkg"]\n')
+        wheel = build_stub_wheel.build(self.root / "deps")
+        with zipfile.ZipFile(wheel) as z:
+            metadata = z.read(f"{DIST_INFO}/METADATA").decode()
+        self.assertNotIn("Requires-Dist", metadata)
+        self.assertNotIn("somepkg", metadata)
 
     def test_building_twice_gives_the_same_bytes(self) -> None:
         again = build_stub_wheel.build(self.root / "again")

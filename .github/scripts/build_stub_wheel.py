@@ -43,9 +43,9 @@ raise ImportError(
 """
 DESCRIPTION = """\
 This is the stub of dagnam-core, installed where no compiled wheel exists for the interpreter
-or platform (free-threaded CPython 3.13, PyPy, Windows arm64, a glibc older than 2.17, ...).
-It holds no compiled code: `import dagnam_core.hygiene` raises ImportError, and the packages
-that depend on dagnam-core catch it and use their pure-Python implementation.
+or platform (free-threaded CPython 3.13, PyPy 3.12 and later, Windows arm64, a glibc older than
+2.17, ...). It holds no compiled code: `import dagnam_core.hygiene` raises ImportError, and the
+packages that depend on dagnam-core catch it and use their pure-Python implementation.
 """
 # Wheels carry timestamps from 1980 on; maturin writes this one in the native wheels too.
 TIMESTAMP = (1980, 1, 1, 0, 0, 0)

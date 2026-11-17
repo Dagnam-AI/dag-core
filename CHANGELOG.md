@@ -25,11 +25,13 @@ All notable changes to `dagnam-core` are listed here, newest first. The version 
   `manylinux_2_28`), so they install on CentOS/RHEL 7, Amazon Linux 2 and Ubuntu 16.04 and 18.04
   as well. The musl wheels are unchanged (`musllinux_1_2`).
 - No Rust build for anyone: every release also carries a pure-Python stub wheel
-  (`py3-none-any`). Where no native wheel fits (free-threaded CPython 3.13, PyPy, Windows arm64,
+  (`py3-none-any`). Where no native wheel fits (free-threaded CPython 3.13, PyPy 3.12 and later, Windows arm64,
   a glibc older than 2.17, ...) pip and uv install the stub, which is preferred to the sdist, and
   `import dagnam_core.hygiene` raises `ImportError("dagnam-core has no compiled build for this
   interpreter or platform; callers fall back to their pure-Python code")`, so callers use their
-  Python implementation. Supported platforms keep their native wheel. The release is 16 files
+  Python implementation. Supported platforms keep their native wheel. There is no free-threaded 3.13 wheel: PyO3 0.29 and
+  later dropped free-threaded CPython older than 3.14, and 0.28.3, the newest release that supports
+  it, carries RUSTSEC-2026-0177, so the core stays on PyO3 0.30. The release is 16 files
   (was 15), and the release workflow now installs with pip and uv from those files alone to prove
   the selection.
 - `scripts/gen_py_classes.py` writes the table of the running interpreter's version and `--check`
