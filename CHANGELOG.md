@@ -21,6 +21,9 @@ All notable changes to `dagnam-core` are listed here, newest first. The version 
   `luhn_ok`, `verhoeff_ok`, `iban_mod97_ok` and `is_ip_address` take the version, the predicates
   and class spellings are `is_py_word(version, c)` and `word_class(version)` (the `*_CLASS`
   statics are gone). Near-duplicate detection reads no character class and takes none.
+- Wheels for older Linux: the glibc wheels are now `manylinux_2_17` (manylinux 2014, was
+  `manylinux_2_28`), so they install on CentOS/RHEL 7, Amazon Linux 2 and Ubuntu 16.04 and 18.04
+  as well. The musl wheels are unchanged (`musllinux_1_2`).
 - `scripts/gen_py_classes.py` writes the table of the running interpreter's version and `--check`
   verifies its table file and its `corpus/classes.jsonl` line.
 

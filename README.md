@@ -4,11 +4,20 @@ Compiled core for the Dagnam.AI libraries: a Cargo workspace plus a maturin/PyO3
 package, `dagnam-core`. It is an internal dependency: install `dagnam-contracts` or `dagnam`
 instead of importing it directly, and expect its API to change without notice.
 
-Wheels are published for Linux (x86_64 and aarch64; glibc 2.28 and later, and musl 1.2),
-macOS (x86_64 and arm64) and Windows (x86_64). Each platform has one `abi3` wheel for CPython
-3.12 and later, plus a free-threaded wheel for CPython 3.14t (version-specific, not `abi3`);
-other platforms build the sdist and need a Rust toolchain. Releases: [RELEASE.md](RELEASE.md),
-[CHANGELOG.md](CHANGELOG.md).
+Wheels are published for these platforms; any other builds the sdist and needs a Rust toolchain.
+Each platform has one `abi3` wheel for CPython 3.12 and later, plus a free-threaded wheel for
+CPython 3.14t (version-specific, not `abi3`). Free-threaded CPython 3.13t has no wheel and cannot
+build from source: PyO3 0.29 and later refuse it.
+
+| platform | wheel tag | runs on |
+|---|---|---|
+| Linux x86_64, aarch64 (glibc) | `manylinux_2_17` (manylinux 2014) | glibc 2.17 and later: CentOS/RHEL 7, Amazon Linux 2, Ubuntu 16.04 and later, Debian 8 and later |
+| Linux x86_64, aarch64 (musl) | `musllinux_1_2` | musl 1.2 and later: Alpine 3.13 and later |
+| macOS x86_64 | `macosx_*_x86_64` | the macOS version in the wheel's tag and later |
+| macOS arm64 | `macosx_*_arm64` | the macOS version in the wheel's tag and later |
+| Windows x86_64 | `win_amd64` | 64-bit Windows |
+
+Releases: [RELEASE.md](RELEASE.md), [CHANGELOG.md](CHANGELOG.md).
 
 - `crates/hygiene` (`dagnam-hygiene`): pure Rust data-hygiene primitives, no Python.
 - `crates/py` (`dagnam-core-py`): the PyO3 bindings, the only crate that names Python.
