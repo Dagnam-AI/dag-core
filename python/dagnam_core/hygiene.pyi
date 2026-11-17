@@ -108,8 +108,9 @@ def near_duplicates(
     square of the identical texts. It is made of shared objects (one `int` per text index, one
     `float` per distinct similarity), so a pair costs its 3-tuple and the list slot, about 73
     bytes: 3,000 identical texts (4.5 million pairs) peak at 362 MB resident and a result of
-    exactly `MAX_PAIRS` pairs at 1,488 MB, measured in a fresh process, about the pure-Python
-    reference's own footprint. `MAX_PAIRS` bounds it.
+    exactly `MAX_PAIRS` pairs at 1,491 MB, measured in a fresh process, at or below the
+    pure-Python reference's 382 MB and 1,541 MB. A caller that wraps each pair in an object of
+    its own pays for that on top. `MAX_PAIRS` bounds it.
 
     The call releases the GIL. A Ctrl+C is seen once the counting walk has finished, between the
     chunks the result is built from, not during the walk.

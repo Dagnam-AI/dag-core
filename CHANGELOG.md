@@ -69,10 +69,11 @@ All notable changes to `dagnam-core` are listed here, newest first. The version 
   distinct similarity (at most 129), each pair a tuple of three of them, read from the core a
   chunk at a time so the pairs are never all held in Rust and in Python together. A pair costs
   about 73 bytes through Python (the tuple and its slot in the list). Peak resident memory of a
-  fresh process, release wheel, measured on the whole call: 3,000 identical texts (4,498,500
-  pairs) 362 MB, and exactly `MAX_PAIRS` pairs 1,488 MB; the pure-Python reference measured 367 MB
-  and 1,471 MB on the same two batches, so the core is at the reference's footprint (1% above it
-  at `MAX_PAIRS`), not under it.
+  fresh process, release wheel, measured on the whole call (this machine, CPython 3.12): 3,000
+  identical texts (4,498,500 pairs) 362 MB, and exactly `MAX_PAIRS` pairs 1,491 MB. The
+  pure-Python reference, run the same way, peaks at 382 MB and 1,541 MB, so the core is at or
+  below its footprint. That is the core's own result (tuples); a caller that wraps every pair in
+  an object of its own pays for the wrapping on top.
 - Rust: `dagnam_hygiene::near_duplicates` returns `Result<_, NearDedupError>` (was `Option`; the
   threshold is `NearDedupError::Threshold`); new `near_duplicates_within(texts, threshold,
   Limits)`, `Limits`, `Batch` (the same checks, then the pairs read in chunks), the `MAX_*`
