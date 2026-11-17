@@ -1,10 +1,11 @@
 //! Data-hygiene primitives: PII redaction and near-duplicate detection.
-// The one unsafe block is the test allocator below, which caps the heap of the unit tests; the
-// crate itself holds none.
-#![cfg_attr(not(test), forbid(unsafe_code))]
+// The crate holds no unsafe code; the one exception is the test allocator below, which caps the
+// heap of the unit tests and is the only item that may opt out.
+#![deny(unsafe_code)]
 
 /// The allocator that caps the heap of the unit tests, the same file the integration tests use.
 #[cfg(test)]
+#[allow(unsafe_code)] // the allocator's `unsafe impl GlobalAlloc`, in test builds only
 #[path = "../tests/guard/mod.rs"]
 pub mod guard;
 #[cfg(test)]
