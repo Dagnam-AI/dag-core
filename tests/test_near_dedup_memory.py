@@ -12,12 +12,50 @@ import pytest
 from dagnam_core import hygiene
 
 _PROBE = """
-import resource, sys
+import sys
 from dagnam_core import hygiene
 
-def peak():
-    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    return rss if sys.platform == "darwin" else rss * 1024
+if sys.platform == "win32":
+    # The peak working set (`PeakWorkingSetSize`), the Windows counterpart of the peak resident set.
+    import ctypes
+    from ctypes import wintypes
+
+    class Counters(ctypes.Structure):
+        _fields_ = [
+            ("cb", wintypes.DWORD),
+            ("PageFaultCount", wintypes.DWORD),
+            ("PeakWorkingSetSize", ctypes.c_size_t),
+            ("WorkingSetSize", ctypes.c_size_t),
+            ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+            ("PagefileUsage", ctypes.c_size_t),
+            ("PeakPagefileUsage", ctypes.c_size_t),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32")
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel32.K32GetProcessMemoryInfo.argtypes = [
+        wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD
+    ]
+    kernel32.K32GetProcessMemoryInfo.restype = wintypes.BOOL
+
+    def peak():
+        counters = Counters()
+        counters.cb = ctypes.sizeof(Counters)
+        if not kernel32.K32GetProcessMemoryInfo(
+            kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb
+        ):
+            raise ctypes.WinError()
+        return counters.PeakWorkingSetSize
+else:
+    import resource
+
+    def peak():
+        # Bytes on macOS, kibibytes on Linux.
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return rss if sys.platform == "darwin" else rss * 1024
 
 {setup}
 before = peak()
@@ -28,6 +66,8 @@ print(before, peak())
 
 def _peaks(setup: str, call: str) -> tuple[int, int]:
     code = _PROBE.format(setup=setup, call=call)
+    # Both numbers come from the child itself, so the bound on their difference does not depend
+    # on how large the interpreter's own working set is on the platform.
     out = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     ).stdout
