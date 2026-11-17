@@ -14,3 +14,5 @@ First release.
 - Wheels for Linux (x86_64 and aarch64, glibc 2.28 and musl 1.2), macOS (x86_64 and arm64) and
   Windows (x86_64): one `abi3` wheel per platform for CPython 3.12 and later, plus a free-threaded
   wheel for CPython 3.14t (version-specific, not `abi3`). An sdist for everything else.
+- Published by trusted publishing from a tag, with build provenance attestations; the release is
+  exactly the 15 expected files, each wheel tested on its own platform before upload.
