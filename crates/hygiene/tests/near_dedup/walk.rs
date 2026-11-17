@@ -127,16 +127,15 @@ fn a_batch_is_read_in_chunks_that_make_up_the_whole_result() {
     let mut batch = Batch::new(&IDENTICAL, 0.5, Limits::DEFAULT).unwrap();
     assert_eq!(batch.pair_count(), 45);
     let (mut read, mut chunks) = (Vec::new(), Vec::new());
-    loop {
+    // Eight reads at most (seven chunks and the empty one that ends them): a `fill` that never
+    // reports an empty chunk fails the comparison below instead of growing `chunks` for ever.
+    for _ in 0..8 {
         let before = read.len();
         let added = batch.fill(&mut read, 7);
         assert_eq!(added, read.len() - before);
-        if added == 0 {
-            break;
-        }
         chunks.push(added);
     }
-    assert_eq!(chunks, [7, 7, 7, 7, 7, 7, 3]);
+    assert_eq!(chunks, [7, 7, 7, 7, 7, 7, 3, 0]);
     assert_eq!(batch.fill(&mut read, 7), 0);
     let whole = near_duplicates(&IDENTICAL, 0.5).unwrap();
     assert_eq!(read, whole.1);

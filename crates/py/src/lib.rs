@@ -205,11 +205,9 @@ mod _native {
         let mut shared = Shared::new(items.len());
         let pairs = PyList::empty(py);
         let mut chunk = Vec::with_capacity(CHUNK.min(batch.pair_count()));
-        loop {
+        for _ in 0..batch.pair_count().div_ceil(CHUNK) {
             chunk.clear();
-            if py.detach(|| batch.fill(&mut chunk, CHUNK)) == 0 {
-                break;
-            }
+            py.detach(|| batch.fill(&mut chunk, CHUNK));
             py.check_signals()?;
             for &(low, high, score) in &chunk {
                 let pair = [

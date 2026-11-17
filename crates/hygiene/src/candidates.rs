@@ -7,6 +7,7 @@
 //! sorted one text at a time. A set of all the pairs holds the square of the number of identical
 //! texts.
 use std::collections::HashMap;
+use std::ops::Range;
 
 use crate::cluster::Signature;
 use crate::minhash::NUM_PERMUTATIONS;
@@ -73,12 +74,10 @@ impl Band {
 /// The candidate pairs `(low, high)`, `low < high`, in ascending order.
 pub(crate) struct Candidates {
     bands: Vec<Band>,
-    /// How many texts there are.
-    count: usize,
+    /// The texts that have not yet been `low`, ascending.
+    lows: Range<usize>,
     /// Per text: the last `low` that listed it, so a text in several of `low`'s buckets is listed once.
     listed_by: Vec<usize>,
-    /// The next text to be `low`.
-    next_low: usize,
     /// The `low` the pairs being yielded belong to.
     low: usize,
     /// The `high` texts of `low`, ascending, and how many were yielded.
@@ -91,9 +90,8 @@ impl Candidates {
     pub(crate) fn new(signatures: &[Signature]) -> Self {
         Self {
             bands: (0..BANDS).map(|band| Band::new(signatures, band)).collect(),
-            count: signatures.len(),
+            lows: 0..signatures.len(),
             listed_by: vec![usize::MAX; signatures.len()],
-            next_low: 0,
             low: 0,
             highs: Vec::new(),
             yielded: 0,
@@ -128,11 +126,9 @@ impl Iterator for Candidates {
                 self.yielded += 1;
                 return Some((self.low, high));
             }
-            if self.next_low >= self.count {
-                return None;
-            }
-            self.next_low += 1;
-            self.load(self.next_low - 1);
+            // The texts are a finite range, so the walk ends whatever else changes.
+            let low = self.lows.next()?;
+            self.load(low);
         }
     }
 }
