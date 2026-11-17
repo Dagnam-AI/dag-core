@@ -78,8 +78,9 @@ All notable changes to `dagnam-core` are listed here, newest first. The version 
 - The Python result is built from shared objects: one `int` per text index and one `float` per
   distinct similarity (at most 129), each pair a tuple of three of them, read from the core a
   chunk at a time so the pairs are never all held in Rust and in Python together. A pair costs
-  about 73 bytes through Python (the tuple and its slot in the list). Peak resident memory of a
-  fresh process, release wheel, measured on the whole call (this machine, CPython 3.12): 3,000
+  about 73 bytes through Python on CPython 3.12 and 3.13, about 91 on 3.14 and about 99 on the
+  free-threaded 3.14t, whose object header is larger (the tuple and its slot in the list). Peak resident memory of
+  a fresh process, release wheel, measured on the whole call (this machine, CPython 3.12): 3,000
   identical texts (4,498,500 pairs) 362 MB, and exactly `MAX_PAIRS` pairs 1,491 MB. The
   pure-Python reference, run the same way, peaks at 382 MB and 1,541 MB, so the core is at or
   below its footprint. That is the core's own result (tuples); a caller that wraps every pair in

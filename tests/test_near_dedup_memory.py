@@ -105,10 +105,18 @@ def test_the_pairs_of_identical_texts_share_their_numbers() -> None:
 
 
 def test_three_thousand_identical_texts_stay_near_the_size_of_their_result() -> None:
-    # 4,498,500 pairs. Each is one tuple (64 bytes) and its slot in the list (8): 72 bytes. The
-    # bound leaves room for the interpreter, the texts and the signatures.
+    # 4,498,500 pairs. Each is one tuple of three shared objects and its slot in the list, and the
+    # size of that tuple is the running interpreter's (`sys.getsizeof` counts its GC header and
+    # object header, so the free-threaded build's is larger). Measured growth per pair against
+    # that budget (`sys.getsizeof((0, 0, 0.0)) + 8`, in bytes), macOS arm64: CPython 3.12 and 3.13
+    # 74.8 against 72 (x1.04), 3.14 90.6 against 80 (x1.13), 3.14t 98.6 against 80 (x1.23): the
+    # allocator rounds each tuple up to its size class. The factor leaves 15% or more above the
+    # honest value on all of them with the fixed allowance, and the 2.5 times a pair that the
+    # binding cost before the objects were shared would still fail by far.
+    pairs = 4_498_500
+    per_pair = sys.getsizeof((0, 0, 0.0)) + 8
     before, after = _peaks(
         "texts = ['a b c d'] * 3000",
         "hygiene.near_duplicates(texts, 0.9)",
     )
-    assert after - before < 4_498_500 * 90 + 32 * 1024 * 1024
+    assert after - before < per_pair * 1.35 * pairs + 32 * 1024 * 1024
