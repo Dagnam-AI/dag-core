@@ -173,6 +173,7 @@
 {"spans": [[1, 16, "PII_PHONE"]], "text": " +1 415-555-0132, Aadhaar Number of the "}
 {"spans": [[1, 16, "PII_PHONE"]], "text": " +1 415-555-0132, adobe 14/03/1987\nABCPE"}
 {"spans": [[1, 16, "PII_PHONE"]], "text": " +1 415-555-0132-[REDACTED:PII_OF_A_LATE"}
+{"spans": [[1, 16, "PII_PHONE"]], "text": " +1 415-555-0132-hello, "}
 {"spans": [[1, 16, "PII_PHONE"], [23, 56, "PII_IBAN"]], "text": " +1 415-555-0132-iban: FR14 2004 1010 0505 0001 3M02 606.\\\", \\\"k\\\": [\\\"Order 527"}
 {"spans": [[1, 16, "PII_PHONE"], [23, 56, "PII_IBAN"]], "text": " +1 415-555-0132-iban: FR14 2004 1010 0505 0001 3M02 606.\\\"]}\", \"n\": 1}"}
 {"spans": [[1, 16, "PII_PHONE"]], "text": " +1 415-555-0132\\\\nuse "}

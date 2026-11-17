@@ -51,7 +51,10 @@ diff_file=$(mktemp)
 trap 'rm -f "$diff_file"' EXIT
 git diff origin/main...HEAD -- crates/hygiene >"$diff_file"
 if [ -s "$diff_file" ]; then
-  cargo mutants -p dagnam-hygiene --in-diff "$diff_file" --cargo-arg=--locked \
+  # A mutant that stops a loop advancing can fill memory in seconds and take the runner down;
+  # memguard kills such a process, and a test that is killed has caught its mutant.
+  scripts/memguard.sh "${DAGNAM_MUTANT_RSS_MB:-3000}" "${DAGNAM_MUTANT_TOTAL_MB:-10000}" \
+    cargo mutants -p dagnam-hygiene --in-diff "$diff_file" --cargo-arg=--locked \
     --jobs "${DAGNAM_MUTANTS_JOBS:-3}"
 else
   echo "no change under crates/hygiene against origin/main; nothing to mutate"

@@ -2,11 +2,12 @@
 //! thresholds outside `(0, 1]`, and what it returns is consistent with itself.
 #![no_main]
 
+use dagnam_hygiene::NearDedupError;
 use libfuzzer_sys::fuzz_target;
 
-/// The most texts one input holds. The pairs of a run of identical texts grow with the square of
-/// its length, so an input of thousands of newlines would end the run on memory, not on a bug;
-/// whether the crate itself should cap that is an owner decision that is still pending.
+/// The most texts one input holds. The crate refuses a batch past its limits, but a batch just
+/// inside them is still a long run, so an input of thousands of newlines would end the run on time
+/// and memory, not on a bug.
 const MOST_TEXTS: usize = 256;
 
 /// The root of `index`: the lowest index of its cluster.
@@ -27,19 +28,32 @@ fuzz_target!(|data: &[u8]| {
     let texts: Vec<&str> = joined.split('\n').take(MOST_TEXTS).collect();
     let result = dagnam_hygiene::near_duplicates(&texts, threshold);
     if !(threshold > 0.0 && threshold <= 1.0) {
-        assert!(result.is_none(), "a threshold outside (0, 1] must be refused");
+        assert_eq!(
+            result,
+            Err(NearDedupError::Threshold),
+            "a threshold outside (0, 1] must be refused"
+        );
         return;
     }
+    // At most 256 texts of fuzz size are nowhere near a limit.
     let (duplicates, pairs) = result.expect("a threshold in (0, 1] is accepted");
     // The duplicates the pairs imply: the clusters the pairs join, less each one's lowest index.
     let mut parent: Vec<usize> = (0..texts.len()).collect();
     for &(low, high, similarity) in &pairs {
         assert!(low < high && high < texts.len(), "pair index out of range");
-        assert!((threshold..=1.0).contains(&similarity), "similarity outside [threshold, 1]");
+        assert!(
+            (threshold..=1.0).contains(&similarity),
+            "similarity outside [threshold, 1]"
+        );
         let (a, b) = (root(&mut parent, low), root(&mut parent, high));
         parent[a.max(b)] = a.min(b);
     }
-    let implied: Vec<usize> = (0..texts.len()).filter(|&i| root(&mut parent, i) != i).collect();
+    let implied: Vec<usize> = (0..texts.len())
+        .filter(|&i| root(&mut parent, i) != i)
+        .collect();
     // Sorted and unique by construction of `implied`, so equality checks both.
-    assert_eq!(duplicates, implied, "duplicates are not the non-root set of the pairs");
+    assert_eq!(
+        duplicates, implied,
+        "duplicates are not the non-root set of the pairs"
+    );
 });

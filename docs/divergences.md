@@ -5,7 +5,17 @@ replaces, each with the reason and the test that pins it. A divergence that is n
 is a bug.
 
 No divergence is listed: on every supported interpreter the core and the Python reference agree
-on every input the corpus and the property tests reach.
+on every input the corpus and the property tests reach. The one difference of shape, which is not a
+difference of answer, is where the size limits of a near-duplicate batch are read (below).
+
+## Near-duplicate limits: two readings, two places
+
+The reference reads `MAX_TEXTS`, `MAX_TEXT_CHARS` and `MAX_TOTAL_CHARS` twice: on the raw rows as
+they were sent, before any is normalised (so a row of a hundred megabytes costs nothing), and again
+on the normalised texts, which casefolding can lengthen. The core is given the normalised texts
+only, so it reads the second one, with the reference's message for it, and the first stays in the
+caller that has the rows. `MAX_COMPARISONS` and `MAX_PAIRS` are the core's own, counted exactly as
+the reference counts them. Pinned by `crates/hygiene/tests/near_dedup/` and `tests/test_near_dedup_limits.py`.
 
 ## Unicode version of the interpreter
 

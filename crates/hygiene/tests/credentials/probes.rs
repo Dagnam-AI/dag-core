@@ -2,7 +2,7 @@
 //! cutting corpus cases by code-point offsets and joining the cuts with one neutral character.
 //!
 //! The repository is public and refuses secret-shaped text, so this directory holds no sample of
-//! a credential in any form, not even a piece: `probes.jsonl` names a case of
+//! a credential in any form, not even a piece: `probes.jsonl` and `probes-r1.jsonl` name a case of
 //! `corpus/credentials.jsonl` and offsets into it, and the single filler characters between the
 //! cuts. Each line is one probe, `{"p": [[case, from, to], "x", ...], "s": [[start, end], ...]}`:
 //! the parts, joined, are the text, and `s` is what the reference finds in it (code points).
@@ -14,7 +14,7 @@ use serde::Deserialize;
 
 use super::corpus::{Part, assemble};
 
-/// One line of `probes.jsonl`.
+/// One line of `probes.jsonl` or `probes-r1.jsonl` (the probes of the R1 shapes).
 #[derive(Deserialize)]
 struct Probe {
     p: Vec<Part>,
@@ -35,7 +35,11 @@ fn found(text: &str) -> Vec<(usize, usize)> {
 
 #[test]
 fn every_probe_finds_what_the_reference_finds() {
-    let lines = include_str!("probes.jsonl");
+    let lines = [
+        include_str!("probes.jsonl"),
+        include_str!("probes-r1.jsonl"),
+    ]
+    .concat();
     let mut failed = Vec::new();
     let mut count = 0;
     for (index, line) in lines.lines().enumerate() {
