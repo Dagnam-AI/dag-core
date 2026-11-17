@@ -6,6 +6,7 @@ Python result together. A process is started per case because a peak cannot be r
 
 import subprocess
 import sys
+from typing import Any
 
 import pytest
 from dagnam_core import hygiene
@@ -39,14 +40,16 @@ def test_a_refused_count_costs_no_copy_of_the_list() -> None:
     # raise the peak by that much. Items that are not `str` show the count is read first.
     before, after = _peaks(
         "texts = [None] * 10_000_000",
-        "try:\n    hygiene.near_duplicates(texts, 0.9)\nexcept hygiene.NearDedupLimitError:\n    pass",
+        "try:\n    hygiene.near_duplicates(texts, 0.9)\n"
+        "except hygiene.NearDedupLimitError:\n    pass",
     )
     assert after - before < 16 * 1024 * 1024
 
 
 def test_a_count_past_the_most_is_refused_before_the_items_are_read() -> None:
+    not_texts: list[Any] = [1] * (hygiene.MAX_TEXTS + 1)
     with pytest.raises(hygiene.NearDedupLimitError, match="MAX_TEXTS"):
-        hygiene.near_duplicates([1] * (hygiene.MAX_TEXTS + 1), 0.9)
+        hygiene.near_duplicates(not_texts, 0.9)
 
 
 def test_the_pairs_of_identical_texts_share_their_numbers() -> None:
