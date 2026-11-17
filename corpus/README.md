@@ -25,13 +25,16 @@ value in a file was computed by the reference; none was typed by hand.
 | `near_dedup.jsonl` | `{"texts": [str], "threshold": float, "duplicate_indices": [int], "pairs": [[int, int, float]]}` | 180 |
 | `findings.jsonl` | `{"text": str, "spans": [[int, int, str]]}`: offsets in code points (not UTF-16 units, bytes or graphemes) and the class code | 3795 |
 | `credentials.jsonl` | `{"parts": [str], "spans": [[int, int, str]]}`: the text is `"".join(parts)`, the spans are what the reference reports on that text (see below) | 9701 |
-| `classes.jsonl` | `{"word": [[int, int]], "space": [[int, int]], "digit": [[int, int]]}`: one line, the inclusive code-point ranges that Python's `re` matches with `\w`, `\s` and `\d`, ascending, with adjacent runs merged and the surrogates (U+D800 to U+DFFF) skipped | 1 |
+| `classes.jsonl` | `{"unicode": str, "word": [[int, int]], "space": [[int, int]], "digit": [[int, int]]}`: one line per Unicode version (15.0.0, 15.1.0, 16.0.0, in that order), the inclusive code-point ranges that Python's `re` matches with `\w`, `\s` and `\d` under the interpreter that has it, ascending, with adjacent runs merged and the surrogates (U+D800 to U+DFFF) skipped | 3 |
 
-`classes.jsonl` holds 749 word ranges (138,558 code points), 10 space ranges (29) and
-64 digit ranges (680), computed with `re.fullmatch` over every code point under Python 3.13.14
-(Unicode 15.1.0). It holds no text, so the credential policy below does not touch it. The
-Rust crate's tables are generated from the same interpreter (`scripts/gen_py_classes.py`),
-and a test compares every predicate with this file on every code point.
+`classes.jsonl` is computed with `re.fullmatch` over every code point, one line per interpreter:
+Python 3.12 (Unicode 15.0.0) has 748 word ranges (137,936 code points), 10 space ranges (29) and
+64 digit ranges (680); Python 3.13.14 (15.1.0) 749 (138,558), 10 (29) and 64 (680); Python 3.14
+(16.0.0, the same under 3.14t) 771 (142,940), 10 (29) and 71 (760). It holds no text, so the
+credential policy below does not touch it. The Rust crate's tables are generated from the same
+interpreters (`scripts/gen_py_classes.py`, whose `--jsonl` writes a line), and a test compares
+every predicate of every version with this file on every code point. The other corpus files were
+exported under Python 3.13.14, so their tests read under 15.1.0.
 
 `findings.jsonl` holds, per class code: PII_CA_SIN 218, PII_DATE_OF_BIRTH 266,
 PII_EMAIL 543, PII_EU_VAT 537, PII_IBAN 510, PII_IN_AADHAAR 529, PII_IN_PAN 118,

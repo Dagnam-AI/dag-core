@@ -6,17 +6,25 @@ means item N below). In both files `\d`, `\w`, `\s`, `\b` and `[a-z]` under `(?i
 
 ## Reference interpreter and tables
 
-The reference is **Python 3.13.14, Unicode 15.1.0**: the interpreter that wrote the corpus. The
-port does **not** use the `regex` crate's built-in `\w`, `\s`, `\d`, `\b` or its case-folding for
-the cases below; it supplies its own tables, **generated from the reference interpreter** by the
-checked-in script `scripts/gen_py_classes.py`. The script computes each class with `re.fullmatch`
-over every code point (surrogates skipped), checks every code point against the definition in
-items 1 to 3 (`str.isalnum()` or `_`, `str.isspace()`, category `Nd`), refuses any interpreter whose
-Unicode database is not 15.1.0, and writes `crates/hygiene/data/py_classes.txt`: one `[word]`,
-`[space]` and `[digit]` section of inclusive hex ranges (`lo-hi`, lowercase, many to a line, so
-the 500-line cap holds). `scripts/gen_py_classes.py --check` (run with the pinned interpreter; the
-gate's venv is 3.12 and the script refuses it) fails when the file is not what the interpreter
-writes. The tables are regenerated when the pinned interpreter moves.
+The reference is **Python 3.13.14, Unicode 15.1.0**: the interpreter that wrote the corpus, and
+the version the corpus tests read under. Python's own classes follow the interpreter's Unicode
+database, so the core ships the tables of **all three** versions CPython 3.12 (15.0.0), 3.13
+(15.1.0) and 3.14 (16.0.0, free-threaded 3.14t too) carry, and every function takes the
+`UnicodeVersion` to read under (the Python package selects it from `unicodedata.unidata_version`
+at import; see [divergences.md](divergences.md)). The port does **not** use the `regex` crate's
+built-in `\w`, `\s`, `\d`, `\b` or its case-folding for the cases below; it supplies its own
+tables, **generated from the interpreter that has each version** by the checked-in script
+`scripts/gen_py_classes.py`. The script computes each class with `re.fullmatch` over every code
+point (surrogates skipped), checks every code point against the definition in items 1 to 3
+(`str.isalnum()` or `_`, `str.isspace()`, category `Nd`), refuses any interpreter whose Unicode
+database is none of the three, and writes `crates/hygiene/data/py_classes_<major>_<minor>.txt`
+(`py_classes_15_0.txt`, `py_classes_15_1.txt`, `py_classes_16_0.txt`): one `[word]`, `[space]` and
+`[digit]` section of inclusive hex ranges (`lo-hi`, lowercase, many to a line, so the 500-line cap
+holds). `scripts/gen_py_classes.py --check`, run under each of the interpreters (`uv run --python
+3.12|3.13|3.14|3.14t`), fails when its file, or its line of `corpus/classes.jsonl`, is not what
+the interpreter writes. The gate's venv is 3.12, which can check only the 15.0.0 table; the
+others run in CI's wheel legs and by hand. A table is added when a new CPython brings a new
+Unicode version.
 
 The file is parsed by the compiler (`crates/hygiene/src/table.rs`, a `const fn` run in a `static`
 initialiser): a malformed table (missing, empty or repeated section, a token that is not
@@ -24,12 +32,17 @@ initialiser): a malformed table (missing, empty or repeated section, a token tha
 never an empty class at run time. It reads LF and CRLF alike, and `.gitattributes` pins the file
 to LF.
 
-`crates/hygiene/src/text.rs` builds everything from those ranges:
+`crates/hygiene/src/unicode.rs` builds everything from those ranges:
 
-- the predicates of item 11, named `is_py_word`, `is_py_space` and `is_py_digit`;
-- the class spellings `WORD_CLASS`, `SPACE_CLASS` and `DIGIT_CLASS`, `LazyLock<String>` statics
-  (formatted from the compile-time table on first use) of the form `[\u{30}-\u{39}...]`, bracketed classes of
-  explicit ranges; and `case_sensitive(class)`, which wraps one in `(?-i:...)`.
+- the predicates of item 11, named `is_py_word(version, c)`, `is_py_space` and `is_py_digit`;
+- the class spellings `word_class(version)`, `space_class` and `digit_class`, strings (formatted
+  from the compile-time table on first use, one per version) of the form
+  `[\u{30}-\u{39}...]`, bracketed classes of explicit ranges; and `case_sensitive(class)`
+  (`text.rs`), which wraps one in `(?-i:...)`.
+
+Every pattern that holds a class is compiled once per version, on first use of that version.
+Near-duplicate detection (`near_duplicates`, `minhash_signature`) splits on the space only and
+reads no class, so it takes no version.
 
 Bracket-body spellings, as valid nested `regex` syntax (W is a class above, with its brackets):
 `\W` is `[^W]`; `[^\W_]` (letters and numbers, no underscore) is `[W&&[^_]]`; a class of W and
@@ -48,9 +61,10 @@ interpreters. The crate's own `\w` also differs in kind (item 1), and its `\s` l
 U+001F.
 
 The package's `requires-python` is `>=3.12`, so the Python backend itself answers with whatever
-interpreter runs it. The core is pinned to the reference tables; where an interpreter differs
-from them, the two backends differ on those code points. That is a documented divergence (see
-`divergences.md`, the row for a code point whose `\w` or `\d` status differs between interpreters), not a bug.
+interpreter runs it. The core therefore reads under the tables of that interpreter's own Unicode
+version (the three above), selected when the package is imported, so the two backends agree on
+every code point. An interpreter with another version is refused, not served with the wrong
+tables (see `divergences.md`).
 
 ## Items
 

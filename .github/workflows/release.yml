@@ -458,7 +458,8 @@ jobs:
           import dagnam_core
           from dagnam_core import hygiene
           assert dagnam_core.__version__ == sys.argv[1], dagnam_core.__version__
-          assert hygiene.CORE_API == 1
+          assert hygiene.CORE_API == 2
+          assert hygiene.UNICODE_SUPPORTED
           assert hygiene.findings("mail a@b.co now") == [(5, 11, "PII_EMAIL")]
           ' "${GITHUB_REF_NAME#core/v}"
 

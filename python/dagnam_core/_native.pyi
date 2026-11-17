@@ -1,8 +1,27 @@
 from collections.abc import Iterable, Sequence
 
-__all__ = ["CORE_API", "findings", "minhash_signature", "near_duplicates"]
+__all__ = [
+    "CORE_API",
+    "UNICODE_SUPPORTED",
+    "UNICODE_VERSION",
+    "findings",
+    "minhash_signature",
+    "near_duplicates",
+]
 
 CORE_API: int
+"""The binding contract version: 2 since the tables follow the interpreter's Unicode version."""
+
+UNICODE_VERSION: str
+"""`unicodedata.unidata_version` of the interpreter that imported the package, as it spells it."""
+
+UNICODE_SUPPORTED: bool
+"""Whether the core has character tables for `UNICODE_VERSION` (15.0.0, 15.1.0 and 16.0.0).
+
+When it is false, `findings`, `minhash_signature` and `near_duplicates` raise `RuntimeError`
+(`dagnam-core has no character tables for Unicode X.Y.Z`; the message holds no input text), and a
+caller falls back to the pure-Python reference.
+"""
 
 def findings(text: str) -> list[tuple[int, int, str]]:
     """Every PII finding in `text`, sorted by start, as `(start, end, class code)`.

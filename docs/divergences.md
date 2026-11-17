@@ -4,6 +4,29 @@ Places where the compiled core deliberately behaves differently from the Python 
 replaces, each with the reason and the test that pins it. A divergence that is not listed here
 is a bug.
 
-| Input | Python | Core | Reason | Pinned by |
-|---|---|---|---|---|
-| Text with a code point whose `\w` or `\d` status differs between the Unicode version of the reference interpreter (Python 3.13.14, Unicode 15.1.0) and the interpreter running the Python backend. On 3.12 (Unicode 15.0.0): 622 `\w` code points, U+2EBF0 to U+2EE5D (CJK Extension I). On 3.14 (Unicode 16.0.0): 4,382 `\w` and 80 `\d` code points, for example U+1C89 and U+10D40. Example: `a@b.` followed by U+2EBF0 | 3.12: no address; 3.13 and 3.14: one address, span 0 to 5 | With U+2EBF0: one address, span 0 to 5. With U+1C89: no address. (The 3.13 tables, on every interpreter.) | The core's `\w`, `\s`, `\d` tables are generated from the pinned reference interpreter, not from the crate's Unicode tables and not from whatever interpreter runs the Python backend (`requires-python` is `>=3.12`). The tables move when the pin moves. With `a@b.` then U+1C89, Python gives no address on 3.12 and 3.13 and one on 3.14. | `classes.jsonl` + the every-code-point predicate test + `gen_py_classes.py --check`; the findings case (an email whose domain ends in a CJK Extension I character) lands with the email finder. |
+No divergence is listed: on every supported interpreter the core and the Python reference agree
+on every input the corpus and the property tests reach.
+
+## Unicode version of the interpreter
+
+Python's `\w`, `\d` and `\s` follow the Unicode database of the interpreter that runs them
+(CPython 3.12: 15.0.0, 3.13: 15.1.0, 3.14 and the free-threaded 3.14t: 16.0.0), and a few
+thousand code points are classified differently between them. The core ships a table for each of
+the three versions and uses the one that matches `unicodedata.unidata_version` of the interpreter
+that imports `dagnam_core.hygiene`, so there is no divergence on a supported interpreter:
+`hygiene.UNICODE_VERSION` is that string and `hygiene.UNICODE_SUPPORTED` is `True`.
+
+An interpreter whose Unicode version is none of the three (CPython 3.15 and later will carry a
+newer one; 3.11 and earlier are not supported by the package at all) is **not served with
+another version's tables**: `UNICODE_SUPPORTED` is `False`, and `findings`, `minhash_signature`
+and `near_duplicates` raise `RuntimeError("dagnam-core has no character tables for Unicode
+X.Y.Z")`, with no input text in the message. A caller falls back to the pure-Python reference.
+A new CPython that changes the Unicode version needs a release of the core with its table
+(`scripts/gen_py_classes.py`, run under that interpreter).
+
+Pinned by `tests/test_unicode_tables.py` (every code point's `\w`, `\d` and `\s` as the core sees
+it against `re` of the running interpreter, on each CPython leg; the unsupported-version
+refusal), by `crates/hygiene/tests/text/classes.rs` (every predicate against `corpus/classes.jsonl`, one line
+per version, on every code point), by `crates/hygiene/tests/text/versions.rs` (the finders differ exactly where
+the versions do), and by `scripts/gen_py_classes.py --check` (each table is what its interpreter
+writes).

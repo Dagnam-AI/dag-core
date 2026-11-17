@@ -17,6 +17,13 @@ other platforms build the sdist and need a Rust toolchain. Releases: [RELEASE.md
 `dagnam_core.hygiene.CORE_API` is the binding contract version. It is bumped whenever a
 binding changes meaning, and the consuming packages check it.
 
+The character classes (`\w`, `\d`, `\s`) follow the Unicode database of the interpreter, as
+Python's `re` does: the core ships the tables of Unicode 15.0.0, 15.1.0 and 16.0.0 (CPython 3.12,
+3.13, 3.14 and 3.14t) and selects the one matching `unicodedata.unidata_version` at import.
+`hygiene.UNICODE_VERSION` is that version and `hygiene.UNICODE_SUPPORTED` says whether the core has
+its tables; on an interpreter it does not, the three functions raise `RuntimeError` and the caller
+uses the pure-Python reference (see [docs/divergences.md](docs/divergences.md)).
+
 ## Gate
 
 ```sh
