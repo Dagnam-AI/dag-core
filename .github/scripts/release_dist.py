@@ -1,6 +1,6 @@
 """Release file checks for release.yml: what may be published, and TestPyPI parity.
 
-    release_dist.py verify STAGE OUT   every artifact in STAGE is one of the 15 expected, with
+    release_dist.py verify STAGE OUT   every artifact in STAGE is one of the 16 expected, with
                                        exactly the expected file; the files are copied to OUT
     release_dist.py compare DIST       TestPyPI serves exactly DIST's files, byte for byte
 
@@ -20,8 +20,9 @@ from pathlib import Path
 
 # platform name (as in release.yml's matrix) -> the platform part of the wheel's tag
 PLATFORMS = {
-    "linux-x86_64-gnu": r"manylinux_2_28_x86_64",
-    "linux-aarch64-gnu": r"manylinux_2_28_aarch64",
+    # manylinux 2014 is glibc 2.17; maturin adds the legacy `manylinux2014_*` spelling as an alias
+    "linux-x86_64-gnu": r"manylinux_2_17_x86_64(?:\.manylinux2014_x86_64)?",
+    "linux-aarch64-gnu": r"manylinux_2_17_aarch64(?:\.manylinux2014_aarch64)?",
     "linux-x86_64-musl": r"musllinux_1_2_x86_64",
     "linux-aarch64-musl": r"musllinux_1_2_aarch64",
     "macos-x86_64": r"macosx_\d+_\d+_x86_64",
@@ -45,6 +46,8 @@ def expected(ver: str) -> dict[str, re.Pattern[str]]:
         for kind, tag in KINDS.items()
     }
     want["dist-sdist"] = re.compile(rf"dagnam_core-{re.escape(ver)}\.tar\.gz")
+    # the pure-Python stub every platform without a native wheel installs instead of the sdist
+    want["dist-stub"] = re.compile(rf"dagnam_core-{re.escape(ver)}-py3-none-any\.whl")
     return want
 
 

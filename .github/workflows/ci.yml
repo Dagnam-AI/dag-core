@@ -75,3 +75,15 @@ jobs:
               python -m pytest -q tests
             uv run --no-project --python "$py" python scripts/gen_py_classes.py --check
           done
+
+  # The release workflow's file checks (what a release may hold) run on every pull request, not
+  # only when a release input changes; stdlib only, so nothing is installed.
+  release-script:
+    name: release file checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s .github/scripts -v

@@ -6,13 +6,21 @@ review or a merge never authorises one.
 
 `.github/workflows/release.yml` does the rest, and **only a tag push can check, attest or
 publish** (a manual run, even of a tag, cannot). A pull request that changes any release input
-(the workflow, its script or pinned requirements, the toolchain, `Cargo.lock`, `Cargo.toml` or
-`pyproject.toml`), or a manual run, builds and tests everything and publishes nothing. On a tag it checks that the ref is a tag, that the tagged commit is on
-`main`, that the tag, `pyproject.toml` and `CHANGELOG.md` name one version, and that CI is green on
-that commit; builds every wheel and the sdist; installs each wheel into a clean environment on its
-own platform and runs `tests/`; checks the release is exactly the 15 expected files; attests them;
-publishes to TestPyPI, checks TestPyPI serves the same bytes, installs from there and runs it; and
-only then publishes to PyPI through the `pypi` environment (trusted publishing, no token secrets).
+(the workflow, the reusable build workflow `release-build.yml`, the release scripts or pinned
+requirements, the toolchain, `Cargo.lock`, `Cargo.toml` or `pyproject.toml`), or a manual run,
+builds and tests everything and publishes nothing. `release.yml` holds the check, collect, attest
+and publish jobs (PyPI's trusted publisher is bound to that file name); the build and test jobs
+live in `release-build.yml` only to keep both files under the 500-line cap. On a tag it checks
+that the ref is a tag, that the tagged commit is on `main`, that the tag, `pyproject.toml` and
+`CHANGELOG.md` name one version, and that CI is green on that commit; builds every wheel (two per
+platform: `abi3` and free-threaded 3.14t), the sdist and the pure-Python stub wheel; installs each
+wheel into a clean environment on its own platform and runs `tests/` (the glibc wheels also inside
+the manylinux2014 image, glibc 2.17); proves with pip and uv, from those files alone, that
+supported interpreters install the native wheel and free-threaded 3.13 the stub, never a build of
+the sdist; checks the release is exactly the 16 expected files; attests them; publishes to
+TestPyPI, checks TestPyPI serves the same bytes, installs from there (it must be the native
+wheel) and runs it; and only then publishes to PyPI through the `pypi` environment (trusted
+publishing, no token secrets).
 PyPI takes no version back, so every step before the last is there to stop a bad one.
 
 ## One-time setup
@@ -73,6 +81,25 @@ PyPI takes no version back, so every step before the last is there to stop a bad
   bytes (zip timestamps), so TestPyPI keeps the first bytes, the comparison fails on every later
   attempt, and the version then needs a patch release. A defect that needs a code
   or workflow change means a new patch version, because PyPI never lets a file name be reused.
+- **The stub is part of every release.** `dagnam_core-X.Y.Z-py3-none-any.whl` (built by
+  `.github/scripts/build_stub_wheel.py`, stdlib only, byte-reproducible) is what pip and uv install
+  where no native wheel fits, instead of building the sdist; its `dagnam_core.hygiene` raises
+  `ImportError`, which `dagnam-contracts` catches. A wheel is preferred to an sdist and a native
+  wheel to this one, so supported platforms are unaffected. `--no-binary` still asks for the sdist.
+  Upload order protects the window: twine uploads the wheels before the sdist, and the file glob
+  puts the `cp3...` wheels before `py3-none-any`, so the stub lands after the native wheels and the
+  sdist last. While a release is half uploaded the project page lists only some files; a platform
+  whose native wheel is already up installs it, and a platform that needs the stub gets "no
+  matching distribution" (never a build) until the stub lands. Install again once the release is
+  complete. There is no 3.13t native wheel: PyO3 0.29 and later dropped
+  free-threaded CPython older than 3.14, and 0.28.3, the newest release that supports it, carries
+  RUSTSEC-2026-0177; do not downgrade PyO3 to get one.
+- **A release that stops at TestPyPI** (a file TestPyPI or PyPI refuses, a smoke failure after the
+  upload) leaves files on an index, so its tag is spent: **a tag cannot be reused**, and the fix is
+  the next patch version, not a moved or re-pushed tag. `0.1.0` is the example: its sdist lacked
+  the `LICENSE` its metadata names (maturin 1.15.0), the index refused it, nothing reached PyPI,
+  and the fix shipped as `0.1.1` with a check in the sdist job. Land the fix on `main`, rehearse,
+  bump the version and changelog, tag the new version.
 - **TestPyPI is down.** `publish-pypi` needs the TestPyPI smoke test, so a release waits. Re-run
   the jobs once it is back; do not bypass the smoke test.
 
@@ -103,11 +130,13 @@ and `.github/ci-build-requirements.txt`).
   (unpinned; patchelf rewrites the shipped `.so`) and `pip install --user cffi`, and it forwards
   the run's `ACTIONS_*` variables into the container. The Linux wheels are therefore only as
   trustworthy as these tools. Mitigations: the images are pinned by digest, and `collect` accepts
-  only the 15 expected files.
-- **Container image digests are refreshed by hand.** The build images (`manylinux_2_28`,
-  `rust-cross`, `rust-musl-cross`) are pinned to the digests in `release.yml`; they are re-resolved
-  and re-rehearsed when the workflow changes, not on a schedule. `quay.io/pypa/manylinux_2_28_x86_64`
-  is pinned from its `latest` tag.
+  only the 16 expected files.
+- **Container image digests are refreshed by hand.** The build and glibc-test images
+  (`manylinux2014`, `manylinux2014-cross`, `rust-musl-cross`) are pinned to the digests in
+  `release-build.yml`; they are re-resolved and re-rehearsed when the workflow changes, not on a
+  schedule. `quay.io/pypa/manylinux2014_x86_64` and `_aarch64` are pinned from their `latest` tag.
+  manylinux 2014 (CentOS 7) is end-of-life upstream but still built by pypa; if a refresh stops
+  publishing it, the glibc floor moves to `manylinux_2_28` in the same change as a changelog line.
 - **Toolchains come from their own servers:** rustup and the Rust toolchain from rust-lang.org (a
   checksum-verified channel manifest), uv and its pinned version from GitHub releases via
   setup-uv (which checks the version's known checksum), and the Python builds uv installs (3.12,
