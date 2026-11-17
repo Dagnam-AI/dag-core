@@ -28,7 +28,11 @@ fuzz_target!(|data: &[u8]| {
     let texts: Vec<&str> = joined.split('\n').take(MOST_TEXTS).collect();
     let result = dagnam_hygiene::near_duplicates(&texts, threshold);
     if !(threshold > 0.0 && threshold <= 1.0) {
-        assert_eq!(result, Err(NearDedupError::Threshold), "a threshold outside (0, 1] must be refused");
+        assert_eq!(
+            result,
+            Err(NearDedupError::Threshold),
+            "a threshold outside (0, 1] must be refused"
+        );
         return;
     }
     // At most 256 texts of fuzz size are nowhere near a limit.
@@ -37,11 +41,19 @@ fuzz_target!(|data: &[u8]| {
     let mut parent: Vec<usize> = (0..texts.len()).collect();
     for &(low, high, similarity) in &pairs {
         assert!(low < high && high < texts.len(), "pair index out of range");
-        assert!((threshold..=1.0).contains(&similarity), "similarity outside [threshold, 1]");
+        assert!(
+            (threshold..=1.0).contains(&similarity),
+            "similarity outside [threshold, 1]"
+        );
         let (a, b) = (root(&mut parent, low), root(&mut parent, high));
         parent[a.max(b)] = a.min(b);
     }
-    let implied: Vec<usize> = (0..texts.len()).filter(|&i| root(&mut parent, i) != i).collect();
+    let implied: Vec<usize> = (0..texts.len())
+        .filter(|&i| root(&mut parent, i) != i)
+        .collect();
     // Sorted and unique by construction of `implied`, so equality checks both.
-    assert_eq!(duplicates, implied, "duplicates are not the non-root set of the pairs");
+    assert_eq!(
+        duplicates, implied,
+        "duplicates are not the non-root set of the pairs"
+    );
 });

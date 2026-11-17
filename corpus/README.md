@@ -9,9 +9,11 @@ value in a file was computed by the reference; none was typed by hand.
   [dag-contracts](https://github.com/Dagnam-AI/dag-contracts) at the commit that merges
   that last changed the exporter's cases, `8ee5f42` (`dagnam-contracts` after 0.6.0: the
   credentials finder reads a name inside a refused value, and the exporter's case table holds those
-  shapes), under Python 3.13.14. `minhash.jsonl`, `near_dedup.jsonl` and the 15.1.0 line of
-  `classes.jsonl` are byte-for-byte what the earlier export wrote; `findings.jsonl` gained one
-  `PII_PHONE` case and `credentials.jsonl` 4,374 cases.
+  shapes), under Python 3.13.14. `minhash.jsonl` and `near_dedup.jsonl` are byte-for-byte what
+  the earlier export wrote. The 15.1.0 line of `classes.jsonl` has the same ranges as before, but
+  the exporter now writes it without the `unicode` key and in another key order, so it is equal in
+  content, not in bytes (the file is unchanged here). `findings.jsonl` gained one `PII_PHONE` case
+  and `credentials.jsonl` 4,374 cases.
 - Regenerate with `uv run python tests/hygiene/export_corpus.py <dir>` from the
   `python/` folder of that checkout; it prints the counts below. The output is seeded
   and sorted, so the same commit writes the same bytes.
@@ -79,7 +81,7 @@ Each line is `{"parts": [str, ...], "spans": [[start, end, code]]}`. The text is
 `"".join(parts)`; `spans` is what the reference's `findings` returns for that text
 (code-point offsets and the class code, as in `findings.jsonl`), so a case may also hold
 a phone number or an address. Cases are sorted by assembled text and not repeated. About
-about one in four (3,241) have no `PII_SECRET` span: near misses that carry a credential
+one in four (3,241) have no `PII_SECRET` span: near misses that carry a credential
 marker or a name shape (a provider prefix with too short a body, a name and separator with
 a value the reference does not read as a secret, a PEM header with no key).
 

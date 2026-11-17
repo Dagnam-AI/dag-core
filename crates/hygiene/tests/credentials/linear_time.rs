@@ -105,7 +105,7 @@ fn four_times_the_text_takes_less_than_eight_times_as_long() {
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
-    assert_eq!(shapes.len(), 37);
+    assert_eq!(shapes.len(), 45);
     for shape in shapes {
         let (head, unit, tail) = (
             assemble(&shape.head),
