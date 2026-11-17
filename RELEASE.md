@@ -6,18 +6,21 @@ review or a merge never authorises one.
 
 `.github/workflows/release.yml` does the rest, and **only a tag push can check, attest or
 publish** (a manual run, even of a tag, cannot). A pull request that changes any release input
-(the workflow, the reusable build workflow `release-build.yml`, the script or pinned requirements,
-the toolchain, `Cargo.lock`, `Cargo.toml` or `pyproject.toml`), or a manual run, builds and tests
-everything and publishes nothing. `release.yml` holds the check, collect, attest and publish jobs
-(PyPI's trusted publisher is bound to that file name); the build and test jobs live in
-`release-build.yml` only to keep both files under the 500-line cap. On a tag it checks that the ref
-is a tag, that the tagged commit is on `main`, that the tag, `pyproject.toml` and `CHANGELOG.md`
-name one version, and that CI is green on that commit; builds every wheel (two per platform:
-`abi3` and free-threaded 3.14t) and the sdist; installs each wheel into a clean environment
-on its own platform and runs `tests/` (the glibc wheels also inside the manylinux2014 image, glibc
-2.17); checks the release is exactly the 15 expected files; attests them;
-publishes to TestPyPI, checks TestPyPI serves the same bytes, installs from there and runs it; and
-only then publishes to PyPI through the `pypi` environment (trusted publishing, no token secrets).
+(the workflow, the reusable build workflow `release-build.yml`, the release scripts or pinned
+requirements, the toolchain, `Cargo.lock`, `Cargo.toml` or `pyproject.toml`), or a manual run,
+builds and tests everything and publishes nothing. `release.yml` holds the check, collect, attest
+and publish jobs (PyPI's trusted publisher is bound to that file name); the build and test jobs
+live in `release-build.yml` only to keep both files under the 500-line cap. On a tag it checks
+that the ref is a tag, that the tagged commit is on `main`, that the tag, `pyproject.toml` and
+`CHANGELOG.md` name one version, and that CI is green on that commit; builds every wheel (two per
+platform: `abi3` and free-threaded 3.14t), the sdist and the pure-Python stub wheel; installs each
+wheel into a clean environment on its own platform and runs `tests/` (the glibc wheels also inside
+the manylinux2014 image, glibc 2.17); proves with pip and uv, from those files alone, that
+supported interpreters install the native wheel and free-threaded 3.13 the stub, never a build of
+the sdist; checks the release is exactly the 16 expected files; attests them; publishes to
+TestPyPI, checks TestPyPI serves the same bytes, installs from there (it must be the native
+wheel) and runs it; and only then publishes to PyPI through the `pypi` environment (trusted
+publishing, no token secrets).
 PyPI takes no version back, so every step before the last is there to stop a bad one.
 
 ## One-time setup
@@ -78,6 +81,13 @@ PyPI takes no version back, so every step before the last is there to stop a bad
   bytes (zip timestamps), so TestPyPI keeps the first bytes, the comparison fails on every later
   attempt, and the version then needs a patch release. A defect that needs a code
   or workflow change means a new patch version, because PyPI never lets a file name be reused.
+- **The stub is part of every release.** `dagnam_core-X.Y.Z-py3-none-any.whl` (built by
+  `.github/scripts/build_stub_wheel.py`, stdlib only, byte-reproducible) is what pip and uv install
+  where no native wheel fits, instead of building the sdist; its `dagnam_core.hygiene` raises
+  `ImportError`, which `dagnam-contracts` catches. A wheel is preferred to an sdist and a native
+  wheel to this one, so supported platforms are unaffected. During an upload a native wheel can
+  land after the stub, so a user installing in those minutes may get the stub: `pip install
+  --force-reinstall dagnam-core` fixes it once the release is complete.
 - **A release that stops at TestPyPI** (a file TestPyPI or PyPI refuses, a smoke failure after the
   upload) leaves files on an index, so its tag is spent: **a tag cannot be reused**, and the fix is
   the next patch version, not a moved or re-pushed tag. `0.1.0` is the example: its sdist lacked
@@ -114,7 +124,7 @@ and `.github/ci-build-requirements.txt`).
   (unpinned; patchelf rewrites the shipped `.so`) and `pip install --user cffi`, and it forwards
   the run's `ACTIONS_*` variables into the container. The Linux wheels are therefore only as
   trustworthy as these tools. Mitigations: the images are pinned by digest, and `collect` accepts
-  only the 15 expected files.
+  only the 16 expected files.
 - **Container image digests are refreshed by hand.** The build and glibc-test images
   (`manylinux2014`, `manylinux2014-cross`, `rust-musl-cross`) are pinned to the digests in
   `release-build.yml`; they are re-resolved and re-rehearsed when the workflow changes, not on a

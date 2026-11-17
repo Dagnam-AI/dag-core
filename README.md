@@ -4,10 +4,10 @@ Compiled core for the Dagnam.AI libraries: a Cargo workspace plus a maturin/PyO3
 package, `dagnam-core`. It is an internal dependency: install `dagnam-contracts` or `dagnam`
 instead of importing it directly, and expect its API to change without notice.
 
-Wheels are published for these platforms; any other builds the sdist and needs a Rust toolchain.
-Each platform has one `abi3` wheel for CPython 3.12 and later, plus a free-threaded wheel for
-CPython 3.14t (version-specific, not `abi3`). Free-threaded CPython 3.13t has no wheel and cannot
-build from source: PyO3 0.29 and later refuse it.
+Native wheels are published for the platforms below. Each has one `abi3` wheel for CPython 3.12
+and later, plus a free-threaded wheel for CPython 3.14t (version-specific, not `abi3`). Every other
+interpreter or platform installs a pure-Python stub wheel instead of building the sdist: no Rust
+toolchain is ever needed to install the package.
 
 | platform | wheel tag | runs on |
 |---|---|---|
@@ -16,6 +16,7 @@ build from source: PyO3 0.29 and later refuse it.
 | macOS x86_64 | `macosx_*_x86_64` | the macOS version in the wheel's tag and later |
 | macOS arm64 | `macosx_*_arm64` | the macOS version in the wheel's tag and later |
 | Windows x86_64 | `win_amd64` | 64-bit Windows |
+| any other interpreter or platform (free-threaded 3.13, PyPy, Windows arm64, a glibc older than 2.17, ...) | `py3-none-any` stub | installs, but `import dagnam_core.hygiene` raises `ImportError`; `dagnam-contracts` then uses its pure-Python code |
 
 Releases: [RELEASE.md](RELEASE.md), [CHANGELOG.md](CHANGELOG.md).
 
