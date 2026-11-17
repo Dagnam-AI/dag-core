@@ -5,8 +5,9 @@ maintainer's own acts**: nothing in this repository tags or publishes by itself,
 review or a merge never authorises one.
 
 `.github/workflows/release.yml` does the rest, and **only a tag push can check, attest or
-publish**. A pull request that changes the workflow, or a manual run, builds and tests everything
-and publishes nothing. On a tag it checks that the ref is a tag, that the tagged commit is on
+publish** (a manual run, even of a tag, cannot). A pull request that changes any release input
+(the workflow, its script or pinned requirements, the toolchain, `Cargo.lock`, `Cargo.toml` or
+`pyproject.toml`), or a manual run, builds and tests everything and publishes nothing. On a tag it checks that the ref is a tag, that the tagged commit is on
 `main`, that the tag, `pyproject.toml` and `CHANGELOG.md` name one version, and that CI is green on
 that commit; builds every wheel and the sdist; installs each wheel into a clean environment on its
 own platform and runs `tests/`; checks the release is exactly the 15 expected files; attests them;
@@ -48,7 +49,7 @@ PyPI takes no version back, so every step before the last is there to stop a bad
 
 1. **Rehearse (mandatory before the first tag, and again whenever `release.yml`,
    `rust-toolchain.toml` or the PyO3 or maturin versions change).** Open a pull request that
-   touches `.github/workflows/release.yml` (it runs by itself), or run the workflow from `main`
+   touches one of those inputs (it runs by itself), or run the workflow from `main`
    with Actions, "Release dagnam-core to PyPI", Run workflow. Every build, test, sdist and collect
    job must be green; the check, attest and publish jobs are skipped on purpose. Do not tag on a
    red or missing rehearsal.
@@ -71,7 +72,10 @@ PyPI takes no version back, so every step before the last is there to stop a bad
   to any index.
 - **After files went to TestPyPI or PyPI**, do not move the tag. TestPyPI and PyPI skip files
   that are already there, so re-running a failed publish or smoke job finishes the upload (the
-  smoke job fails if TestPyPI holds bytes that differ from this run's). A defect that needs a code
+  smoke job fails if TestPyPI holds bytes that differ from this run's). **Re-run only the
+  failed jobs, never all jobs**: a full re-run rebuilds the wheels, and rebuilt wheels differ in
+  bytes (zip timestamps), so TestPyPI keeps the first bytes, the comparison fails on every later
+  attempt, and the version then needs a patch release. A defect that needs a code
   or workflow change means a new patch version, because PyPI never lets a file name be reused.
 - **TestPyPI is down.** `publish-pypi` needs the TestPyPI smoke test, so a release waits. Re-run
   the jobs once it is back; do not bypass the smoke test.

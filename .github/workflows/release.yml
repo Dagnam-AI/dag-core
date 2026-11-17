@@ -1,7 +1,8 @@
 name: Release dagnam-core to PyPI
 
 # A release is the tag `core/vX.Y.Z` on a commit that is on `main` (RELEASE.md). Only a TAG push can
-# check, attest or publish. A pull request that changes this file, or a manual run, builds every
+# check, attest or publish (a manual run of a tag ref cannot either). A pull request that changes
+# any release input, or a manual run, builds every
 # wheel and the sdist, installs each wheel on its own platform and runs tests/, and checks the file
 # set: the rehearsal that RELEASE.md requires before the first tag and after any change here.
 on:
@@ -9,8 +10,17 @@ on:
     tags:
       - "core/v*"
   pull_request:
+    # Every input of a release, so a change to one rehearses itself before it can reach a tag.
     paths:
       - ".github/workflows/release.yml"
+      - ".github/scripts/release_dist.py"
+      - ".github/ci-requirements.txt"
+      - ".github/ci-build-requirements.txt"
+      - "rust-toolchain.toml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/**/Cargo.toml"
+      - "pyproject.toml"
   workflow_dispatch:
 
 # Guard against double-tag races. cancel-in-progress=false because once a build starts uploading
@@ -30,7 +40,7 @@ env:
 jobs:
   check:
     name: Tag, version, changelog and CI agree
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -345,7 +355,7 @@ jobs:
   # actions below, so no build tool can reach its OIDC token.
   attest:
     name: Attest build provenance
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: [check, collect]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -364,7 +374,7 @@ jobs:
 
   publish-testpypi:
     name: Publish to TestPyPI
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: attest
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -387,11 +397,11 @@ jobs:
 
   smoke-testpypi:
     name: Install from TestPyPI and run it
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: publish-testpypi
     runs-on: ubuntu-latest
-    # The digest comparison and the install each wait up to 15 minutes for TestPyPI's index.
-    timeout-minutes: 40
+    # The digest comparison waits up to 15 minutes for TestPyPI's index.
+    timeout-minutes: 25
     permissions:
       contents: read
     defaults:
@@ -414,6 +424,8 @@ jobs:
       # a file that is already there, so this is what proves the smoke test runs our bytes.
       - name: Compare TestPyPI's files with this run's
         run: python3 .github/scripts/release_dist.py compare dist
+      # One try: the comparison above already waited for TestPyPI to list the files. If the simple
+      # index still lags (a separate path), this fails closed and the job is re-run.
       - name: Install from TestPyPI
         run: |
           version="${GITHUB_REF_NAME#core/v}"
@@ -435,7 +447,7 @@ jobs:
 
   publish-pypi:
     name: Publish to PyPI
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: smoke-testpypi
     runs-on: ubuntu-latest
     timeout-minutes: 10

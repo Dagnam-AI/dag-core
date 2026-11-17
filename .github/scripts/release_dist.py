@@ -8,13 +8,13 @@ Run from the repository root; the version is the one in pyproject.toml.
 """
 
 import hashlib
+import http.client
 import json
 import re
 import shutil
 import sys
 import time
 import tomllib
-import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -72,6 +72,8 @@ def sha256(path: Path) -> str:
 def compare(dist: Path) -> None:
     """Fail unless TestPyPI serves exactly these files, with these digests (waits for the index)."""
     local = {p.name: sha256(p) for p in dist.iterdir()}
+    if not local:
+        sys.exit(f"{dist} holds no files to compare")
     url = f"https://test.pypi.org/pypi/dagnam-core/{version()}/json"
     remote: dict[str, str] = {}
     for attempt in range(15):
@@ -80,7 +82,7 @@ def compare(dist: Path) -> None:
                 remote = {
                     u["filename"]: u["digests"]["sha256"] for u in json.load(response)["urls"]
                 }
-        except (urllib.error.URLError, KeyError, json.JSONDecodeError):
+        except (OSError, http.client.HTTPException, KeyError, json.JSONDecodeError):
             remote = {}
         if set(local) <= set(remote):
             break
