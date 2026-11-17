@@ -294,7 +294,8 @@ jobs:
           uv venv --python "$PY" .venv-smoke
           uv pip install --python .venv-smoke --require-hashes -r .github/ci-requirements.txt
           uv pip install --python .venv-smoke --no-deps dist/*.whl
-          if [ "$RUNNER_OS" = Windows ]; then vpy=../.venv-smoke/Scripts/python.exe; else vpy=../.venv-smoke/bin/python; fi
+          # Absolute: a relative path through tests/ makes python3.14t warn about its prefix, fatal under -W error.
+          if [ "$RUNNER_OS" = Windows ]; then vpy="$PWD/.venv-smoke/Scripts/python.exe"; else vpy="$PWD/.venv-smoke/bin/python"; fi
           # From tests/, so the import is the installed wheel and not a source tree.
           (cd tests && "$vpy" -m pytest -q .)
           if [ "$PY" = 3.14t ]; then
