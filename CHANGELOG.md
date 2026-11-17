@@ -3,7 +3,7 @@
 All notable changes to `dagnam-core` are listed here, newest first. The version is the one in
 `pyproject.toml`; a release is the tag `core/vX.Y.Z` (see RELEASE.md).
 
-## Unreleased: 0.2.0
+## 0.2.0 - 2026-11-17
 
 - The character classes follow the interpreter. Python's `\w`, `\d` and `\s` differ between
   Unicode 15.0.0 (CPython 3.12), 15.1.0 (3.13) and 16.0.0 (3.14, 3.14t), so the core now ships a
@@ -31,9 +31,11 @@ All notable changes to `dagnam-core` are listed here, newest first. The version 
   interpreter or platform; callers fall back to their pure-Python code")`, so callers use their
   Python implementation. Supported platforms keep their native wheel. There is no free-threaded 3.13 wheel: PyO3 0.29 and
   later dropped free-threaded CPython older than 3.14, and 0.28.3, the newest release that supports
-  it, carries RUSTSEC-2026-0177, so the core stays on PyO3 0.30. The release is 16 files
-  (was 15), and the release workflow now installs with pip and uv from those files alone to prove
-  the selection.
+  it, carries RUSTSEC-2026-0177, so the core stays on PyO3 0.30. The release is 16 files (was
+  15): 14 native wheels (seven platforms, `abi3` and free-threaded 3.14t each), the stub wheel and
+  the sdist. The release workflow now installs with pip and uv from those files alone to prove the
+  selection. Upload order: native wheels, then the stub, then the sdist, so a half-uploaded
+  release never makes pip or uv build the sdist (RELEASE.md).
 - `scripts/gen_py_classes.py` writes the table of the running interpreter's version and `--check`
   verifies its table file and its `corpus/classes.jsonl` line.
 - A credential after a value an ambiguous name refuses is found, as in the reference (R1,
@@ -60,6 +62,14 @@ All notable changes to `dagnam-core` are listed here, newest first. The version 
   items is refused without a copy of it. The reference reads the same size limits first on the
   raw rows, before it normalises them: that reading stays in the caller, which has the rows.
   `hygiene.CORE_API` stays 2.
+- For `dagnam-contracts`, which must mirror these (the core does not read them from it): its
+  limit values and messages have to stay equal to the five above. `NearDedupLimitError` is a
+  `ValueError`, so code that catches `ValueError` keeps working. Where the core cannot serve a
+  call it raises `RuntimeError` (a Unicode version without tables, see `UNICODE_SUPPORTED`) or,
+  from the stub, `ImportError` on import; a caller that falls back to its Python code has to
+  treat both as "no core".
+- A Ctrl+C is seen while `near_duplicates` builds its result, between chunks of 65,536 pairs; the
+  counting walk before it, and `findings` and `minhash_signature`, still cannot be interrupted.
 - `near_duplicates` no longer holds the candidate pairs. They are streamed in the reference's
   order (the lower text ascending, each one's partners ascending, each pair once) from a pointer
   per text and band, where the 0.1 line built an ordered set of all of them. The Rust crate alone,
@@ -68,8 +78,9 @@ All notable changes to `dagnam-core` are listed here, newest first. The version 
 - The Python result is built from shared objects: one `int` per text index and one `float` per
   distinct similarity (at most 129), each pair a tuple of three of them, read from the core a
   chunk at a time so the pairs are never all held in Rust and in Python together. A pair costs
-  about 73 bytes through Python (the tuple and its slot in the list). Peak resident memory of a
-  fresh process, release wheel, measured on the whole call (this machine, CPython 3.12): 3,000
+  about 73 bytes through Python on CPython 3.12 and 3.13, about 91 on 3.14 and about 99 on the
+  free-threaded 3.14t, whose object header is larger (the tuple and its slot in the list). Peak resident memory of
+  a fresh process, release wheel, measured on the whole call (this machine, CPython 3.12): 3,000
   identical texts (4,498,500 pairs) 362 MB, and exactly `MAX_PAIRS` pairs 1,491 MB. The
   pure-Python reference, run the same way, peaks at 382 MB and 1,541 MB, so the core is at or
   below its footprint. That is the core's own result (tuples); a caller that wraps every pair in

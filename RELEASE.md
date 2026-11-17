@@ -27,10 +27,8 @@ PyPI takes no version back, so every step before the last is there to stop a bad
 
 - **Trusted publishers.** PyPI and TestPyPI each have a publisher for the project `dagnam-core`:
   owner `Dagnam-AI`, repository `dag-core`, workflow `release.yml`, environment `pypi` on PyPI and
-  `testpypi` on TestPyPI. Until the first release these are only *pending* publishers: the name is
-  not registered, a pending publisher does not reserve it, and the first publish creates the
-  project. Cut `0.1.0` soon after registering; a squatter who takes the name first makes the
-  upload fail (closed), and the release waits for a different name.
+  `testpypi` on TestPyPI. Both projects exist (`0.1.1` is the first release on PyPI; `0.1.0` is on
+  TestPyPI only), so the publishers are no longer pending.
 - **Environments restricted to tags.** Both environments (`pypi`, `testpypi`) deploy only from tags
   `core/v*`, so that a branch with a copy of the workflow cannot use them. Neither has a required
   reviewer: the tag is the release act and the maintainer who pushes it is the approval.
@@ -56,10 +54,13 @@ PyPI takes no version back, so every step before the last is there to stop a bad
    touches one of those inputs (it runs by itself), or run the workflow from `main`
    with Actions, "Release dagnam-core to PyPI", Run workflow. Every build, test, sdist and collect
    job must be green; the check, attest and publish jobs are skipped on purpose. Do not tag on a
-   red or missing rehearsal.
+   red or missing rehearsal. The version-bump pull request of step 2 changes `pyproject.toml`,
+   which is a release input, so it is its own rehearsal: read its result before tagging.
 2. Pick the version `X.Y.Z`. On a branch, set it in `pyproject.toml` (the crates' own versions
    are not published and do not need to follow), change the version in `tests/test_hygiene.py`,
-   and add a `## X.Y.Z` section to `CHANGELOG.md`. Merge it to `main` by pull request.
+   and turn the changelog's unreleased section into `## X.Y.Z - YYYY-MM-DD` (the check wants a
+   `## X.Y.Z` heading, optionally in brackets, followed by a space or the end of the line). Merge
+   it to `main` by pull request.
 3. Wait for CI on that `main` commit to finish green: the release refuses a commit whose `gate`
    job is not. A tag pushed too early fails the `check` job with `in_progress`; re-run the workflow
    once CI is green.
