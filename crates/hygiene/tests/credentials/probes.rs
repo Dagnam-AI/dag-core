@@ -8,7 +8,8 @@
 //! the parts, joined, are the text, and `s` is what the reference finds in it (code points).
 //! The offsets and spans were computed once from the reference over the corpus and are numbers
 //! only. A probe that names a case or an offset the corpus no longer has fails here, loudly.
-use dagnam_hygiene::{find_secrets, to_char_offsets};
+use crate::reference::find_secrets;
+use dagnam_hygiene::to_char_offsets;
 use serde::Deserialize;
 
 use super::corpus::{Part, assemble};

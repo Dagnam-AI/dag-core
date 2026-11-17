@@ -1,8 +1,7 @@
 //! IBANs: a registered country, its exact length, and mod-97 equal to 1.
-use std::sync::LazyLock;
-
 use super::{Pattern, compile, digit_value, group_span, not_ascii_alnum, scan};
-use crate::text::{DIGIT_CLASS, char_before};
+use crate::text::char_before;
+use crate::unicode::{UnicodeVersion, Versioned, digit_class};
 
 /// The SWIFT IBAN registry's length per country.
 const LENGTHS: &[(&str, usize)] = &[
@@ -99,8 +98,8 @@ const LENGTHS: &[(&str, usize)] = &[
 /// Spaced in fours or compact; a candidate may run on into a following word, which the
 /// registered length then trims off. Then a character that is not an ASCII letter or digit (or
 /// the end), looked at and left for the next search (`docs/patterns.md`, P21).
-static CANDIDATE: Pattern = LazyLock::new(|| {
-    let d = DIGIT_CLASS.as_str();
+static CANDIDATE: Pattern = Versioned::new(|version| {
+    let d = digit_class(version);
     compile(&format!(
         "([A-Z]{{2}}{d}{{2}}(?: ?[A-Z0-9]{{4}}){{2,7}}(?: ?[A-Z0-9]{{1,4}})?)(?:\\z|[^A-Za-z0-9])"
     ))
@@ -109,13 +108,13 @@ static CANDIDATE: Pattern = LazyLock::new(|| {
 /// Whether the compact `iban` passes mod-97: the first four characters moved to the end, every
 /// letter read as the two-digit number 10 to 35, and the whole number equal to 1 mod 97.
 #[must_use]
-pub fn iban_mod97_ok(iban: &str) -> bool {
+pub fn iban_mod97_ok(iban: &str, version: UnicodeVersion) -> bool {
     let remainder = iban
         .chars()
         .skip(4)
         .chain(iban.chars().take(4))
         .fold(0, |remainder, c| {
-            let value = c.to_digit(36).unwrap_or_else(|| digit_value(c));
+            let value = c.to_digit(36).unwrap_or_else(|| digit_value(c, version));
             let shift = if value < 10 { 10 } else { 100 };
             (remainder * shift + value) % 97
         });
@@ -124,7 +123,7 @@ pub fn iban_mod97_ok(iban: &str) -> bool {
 
 /// Where the IBAN in `raw`, a candidate, ends (a byte offset), if it has one: the country is
 /// registered, the registered length closes a group, and mod-97 holds.
-fn iban_end(raw: &str) -> Option<usize> {
+fn iban_end(raw: &str, version: UnicodeVersion) -> Option<usize> {
     raw.get(..2)
         .and_then(|country| LENGTHS.iter().find(|&&(code, _)| code == country))
         .and_then(|&(_, length)| {
@@ -139,21 +138,21 @@ fn iban_end(raw: &str) -> Option<usize> {
         })
         .filter(|&end| {
             raw.get(..end)
-                .is_some_and(|iban| iban_mod97_ok(&iban.replace(' ', "")))
+                .is_some_and(|iban| iban_mod97_ok(&iban.replace(' ', ""), version))
         })
 }
 
 /// IBANs: a registered country, its exact length, and mod-97 == 1.
 #[must_use]
-pub fn find_ibans(text: &str) -> Vec<(usize, usize)> {
-    let candidates = scan(&CANDIDATE, text, |start, caps| {
+pub fn find_ibans(text: &str, version: UnicodeVersion) -> Vec<(usize, usize)> {
+    let candidates = scan(CANDIDATE.get(version), text, |start, caps| {
         group_span(caps, 1).filter(|_| not_ascii_alnum(char_before(text, start)))
     });
     candidates
         .into_iter()
         .filter_map(|(from, to)| {
             text.get(from..to)
-                .and_then(iban_end)
+                .and_then(|raw| iban_end(raw, version))
                 .map(|end| (from, from + end))
         })
         .collect()

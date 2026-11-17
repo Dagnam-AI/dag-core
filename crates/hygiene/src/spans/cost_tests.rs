@@ -2,6 +2,7 @@
 //! in time: a count says the same on a loaded machine, in a debug build and under coverage, and
 //! it cannot pass for a reason of its own the way a ratio of two short timings can. The
 //! wall-clock check on the whole `findings` is `tests/spans/linear_time.rs`.
+use super::tests::VERSION;
 use super::window_tests::{LOOKS, runs};
 use super::*;
 
@@ -12,20 +13,20 @@ static ALTERNATING: [Detector; 2] = [
         code: "PII_A",
         loose: false,
         placeholder: None,
-        find: |text| runs(text, 'a', 'b', ""),
+        find: |text, _| runs(text, 'a', 'b', ""),
     },
     Detector {
         code: "PII_B",
         loose: false,
         placeholder: None,
-        find: |text| runs(text, 'b', 'a', ""),
+        find: |text, _| runs(text, 'b', 'a', ""),
     },
 ];
 
 /// Read `text` through `detectors`; the counters of the scan.
 fn counters(detectors: &'static [Detector], text: &str) -> Scan<'static> {
     let text: &'static str = Box::leak(text.to_owned().into_boxed_str());
-    let mut scan = Scan::new(detectors, text);
+    let mut scan = Scan::new(detectors, text, VERSION);
     scan.run();
     scan
 }
@@ -61,7 +62,7 @@ fn a_text_of_many_findings_costs_one_whole_read_and_a_window_per_finding() {
     // its own (nothing in it is hidden: the cost does not grow with the number of findings).
     let links = 60;
     let text = "Aadhaar Number 580927525309".repeat(links);
-    let mut scan = Scan::new(DETECTORS, &text);
+    let mut scan = Scan::new(DETECTORS, &text, VERSION);
     assert_eq!(scan.run().len(), links);
     assert_eq!(scan.full_reads, 1);
     assert_eq!(scan.windows, links);

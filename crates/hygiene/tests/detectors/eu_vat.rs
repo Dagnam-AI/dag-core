@@ -1,5 +1,5 @@
 //! `find_eu_vat`.
-use dagnam_hygiene::find_eu_vat;
+use crate::reference::find_eu_vat;
 
 use super::{assert_finds, assert_misses};
 

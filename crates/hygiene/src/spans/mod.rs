@@ -21,7 +21,8 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::detectors::{DETECTORS, Detector, compile};
-use crate::text::{is_py_word, to_char_offsets};
+use crate::text::to_char_offsets;
+use crate::unicode::{UnicodeVersion, is_py_word};
 
 /// After an accepted span the text right after it is read as a string of its own through a
 /// window of this many characters, doubled while a candidate reaches the window's edge (so a
@@ -130,12 +131,12 @@ fn resolve(mut candidates: Vec<Cand>) -> Vec<Cand> {
 ///
 /// Always every class: a class a policy does not act on can still be what hides, or is hidden
 /// by, one it does, so the scan and every policy resolve the same set.
-fn detect(detectors: &'static [Detector], piece: &str) -> Vec<Cand> {
+fn detect(detectors: &'static [Detector], piece: &str, version: UnicodeVersion) -> Vec<Cand> {
     detectors
         .iter()
         .enumerate()
         .flat_map(|(order, detector)| {
-            (detector.find)(piece)
+            (detector.find)(piece, version)
                 .into_iter()
                 .filter(|&(start, end)| end > start)
                 .map(move |(start, end)| Cand {
@@ -166,10 +167,10 @@ fn cut(a: usize, b: usize, spans: &[Cand]) -> Vec<(usize, usize)> {
 /// made of punctuation, but both need the at sign; every other class needs a letter or a
 /// digit. Narrower than the union of the patterns' required characters would hide a finding from
 /// the read that decides it, so this is derived from them, not guessed.
-fn holds_content(piece: &str) -> bool {
+fn holds_content(piece: &str, version: UnicodeVersion) -> bool {
     piece
         .chars()
-        .any(|c| (is_py_word(c) && c != '_') || c == '@')
+        .any(|c| (is_py_word(version, c) && c != '_') || c == '@')
 }
 
 /// Whether fewer than [`MARGIN`] characters of `window` follow byte `end`.
@@ -194,6 +195,7 @@ struct Look<'t> {
 /// The whole scan of one text.
 struct Scan<'t> {
     detectors: &'static [Detector],
+    version: UnicodeVersion,
     text: &'t str,
     /// The accepted spans, in the order they were accepted.
     out: Vec<Cand>,
@@ -212,9 +214,10 @@ struct Scan<'t> {
 }
 
 impl<'t> Scan<'t> {
-    fn new(detectors: &'static [Detector], text: &'t str) -> Self {
+    fn new(detectors: &'static [Detector], text: &'t str, version: UnicodeVersion) -> Self {
         Self {
             detectors,
+            version,
             text,
             out: Vec::new(),
             work: segments(text),
@@ -227,7 +230,7 @@ impl<'t> Scan<'t> {
     /// Every detector's spans in `piece`, counting what was read.
     fn detect(&mut self, piece: &str) -> Vec<Cand> {
         self.chars_read += piece.chars().count();
-        detect(self.detectors, piece)
+        detect(self.detectors, piece, self.version)
     }
 
     /// Reads every segment whole, then the text after each accepted span through windows, and
@@ -243,7 +246,7 @@ impl<'t> Scan<'t> {
             let accepted: Vec<Cand> = spans.iter().map(|c| c.moved(a)).collect();
             self.out.extend_from_slice(&accepted);
             for (p, q) in cut(a, b, &accepted) {
-                if holds_content(slice(self.text, p, q)) {
+                if holds_content(slice(self.text, p, q), self.version) {
                     self.read(p, q);
                 }
             }
@@ -307,7 +310,7 @@ impl<'t> Scan<'t> {
                     break; // near the edge: the next window reads it
                 }
                 self.out.push(region.moved(p));
-                if holds_content(slice(window, cursor, region.start)) {
+                if holds_content(slice(window, cursor, region.start), self.version) {
                     self.work.push((p + cursor, p + region.start)); // its right edge changed
                 }
                 cursor = region.end;
@@ -319,8 +322,12 @@ impl<'t> Scan<'t> {
 
 /// The findings of `text` read through `detectors`, as `(start, end, class code)` in code
 /// points.
-fn engine(detectors: &'static [Detector], text: &str) -> Vec<(usize, usize, &'static str)> {
-    let mut found = Scan::new(detectors, text).run();
+fn engine(
+    detectors: &'static [Detector],
+    text: &str,
+    version: UnicodeVersion,
+) -> Vec<(usize, usize, &'static str)> {
+    let mut found = Scan::new(detectors, text, version).run();
     found.sort_by_key(|c| c.start);
     let starts: Vec<usize> = found.iter().map(|c| c.start).collect();
     let ends: Vec<usize> = found.iter().map(|c| c.end).collect();
@@ -341,9 +348,12 @@ fn engine(detectors: &'static [Detector], text: &str) -> Vec<(usize, usize, &'st
 /// their union, named by the best-ranked member (a class that is not loose, then the earliest
 /// start, then the shorter span, then registry order). Text between placeholders (`[REDACTED:`
 /// and a class code, `<SECRET>`) is read as separate strings.
+///
+/// `version` is the Unicode database of the interpreter whose `\w`, `\d` and `\s` the reference
+/// reads text with; the finders classify every character by that version's tables.
 #[must_use]
-pub fn findings(text: &str) -> Vec<(usize, usize, &'static str)> {
-    engine(DETECTORS, text)
+pub fn findings(text: &str, version: UnicodeVersion) -> Vec<(usize, usize, &'static str)> {
+    engine(DETECTORS, text, version)
 }
 
 #[cfg(test)]

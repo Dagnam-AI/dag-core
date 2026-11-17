@@ -4,7 +4,7 @@
 //! Python 3.13) and is embedded as it printed, with the reference's verdict beside it: the Rust
 //! side never recomputes an expected value. They exist because a swapped or mistyped table cell
 //! or registry entry changes no result for the numbers the other tests happen to use.
-use dagnam_hygiene::{find_eu_vat, find_ibans, verhoeff_ok};
+use crate::reference::{find_eu_vat, find_ibans, verhoeff_ok};
 
 /// Valid 12-digit Verhoeff numbers (a few start with 0 or 1, which the Aadhaar finder's pattern
 /// would not accept: only the checksum is under test), each checked by the reference's

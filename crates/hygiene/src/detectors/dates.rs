@@ -1,8 +1,7 @@
 //! Dates of birth: a date, but only right after a birth keyword.
-use std::sync::LazyLock;
-
 use super::{Pattern, compile, group_span, scan};
-use crate::text::{DIGIT_CLASS, SPACE_CLASS, char_before};
+use crate::text::char_before;
+use crate::unicode::{UnicodeVersion, Versioned, digit_class, space_class};
 
 /// Whether `c` is one of the characters Python's `[A-Za-z]` reads under `(?i)`: the ASCII
 /// letters and U+0130, U+0131 (for `i`), U+017F (for `s`) and U+212A (for `k`).
@@ -17,8 +16,8 @@ pub(super) fn is_ci_ascii_letter(c: char) -> bool {
 /// patterns.md`, P25, semantics 6), and a character after the date that is a digit, or a
 /// `/`, `.` or `-` with a digit after it, ends the search at that date: the terminator is
 /// looked at and left for the next search, so a shorter date end can still be taken.
-static DATE_OF_BIRTH: Pattern = LazyLock::new(|| {
-    let (d, s) = (DIGIT_CLASS.as_str(), SPACE_CLASS.as_str());
+static DATE_OF_BIRTH: Pattern = Versioned::new(|version| {
+    let (d, s) = (digit_class(version), space_class(version));
     let i = r"[i\u{130}\u{131}]";
     let day = format!("(?:0?[1-9]|[12]{d}|3[01])");
     let month_number = "(?:0?[1-9]|1[0-2])";
@@ -41,8 +40,8 @@ static DATE_OF_BIRTH: Pattern = LazyLock::new(|| {
 
 /// Dates of birth: the date after a keyword, the date only.
 #[must_use]
-pub fn find_dates_of_birth(text: &str) -> Vec<(usize, usize)> {
-    scan(&DATE_OF_BIRTH, text, |start, caps| {
+pub fn find_dates_of_birth(text: &str, version: UnicodeVersion) -> Vec<(usize, usize)> {
+    scan(DATE_OF_BIRTH.get(version), text, |start, caps| {
         group_span(caps, 1).filter(|_| !char_before(text, start).is_some_and(is_ci_ascii_letter))
     })
 }

@@ -1,5 +1,5 @@
 //! `find_emails`: where the domain of an address ends.
-use dagnam_hygiene::find_emails;
+use crate::reference::find_emails;
 
 use super::assert_reads;
 

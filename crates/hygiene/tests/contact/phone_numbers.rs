@@ -1,5 +1,5 @@
 //! `find_phones`: one number at a time, the pattern's guards and the filters on top of it.
-use dagnam_hygiene::find_phones;
+use crate::reference::find_phones;
 
 use super::{assert_none, assert_reads};
 

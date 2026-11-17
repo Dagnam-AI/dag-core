@@ -12,7 +12,7 @@
 //! credential is part of a text it is a case of `credentials.jsonl` assembled at run time.
 use std::time::{Duration, Instant};
 
-use dagnam_hygiene::findings;
+use crate::reference::findings;
 
 use crate::{CredentialCase, FindingsCase, cases};
 

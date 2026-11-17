@@ -16,6 +16,7 @@ mod contact;
 mod credentials;
 mod detectors;
 mod guard;
+mod reference;
 mod spans;
 mod text;
 
@@ -114,8 +115,8 @@ fn cases<T: DeserializeOwned>(name: &str) -> Vec<T> {
 }
 
 #[test]
-fn the_core_api_version_starts_at_one() {
-    assert_eq!(dagnam_hygiene::core_api(), 1);
+fn the_core_api_version_is_two() {
+    assert_eq!(dagnam_hygiene::core_api(), 2);
 }
 
 #[test]

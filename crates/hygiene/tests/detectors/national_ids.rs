@@ -1,5 +1,5 @@
 //! `find_national_ids` (US SSN), `find_uk_ninos` and `find_in_pans`.
-use dagnam_hygiene::{find_in_pans, find_national_ids, find_uk_ninos};
+use crate::reference::{find_in_pans, find_national_ids, find_uk_ninos};
 
 use super::{assert_finds, assert_misses};
 

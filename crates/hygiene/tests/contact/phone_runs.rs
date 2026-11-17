@@ -1,5 +1,5 @@
 //! `find_phones` on runs: a number read on from an accepted one without the lookbehinds.
-use dagnam_hygiene::find_phones;
+use crate::reference::find_phones;
 
 use super::{assert_none, assert_reads};
 

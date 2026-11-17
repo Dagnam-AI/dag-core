@@ -1,5 +1,5 @@
 //! `find_emails`: the head of an address (its local part and `@`) and what may stand before it.
-use dagnam_hygiene::find_emails;
+use crate::reference::find_emails;
 
 use super::{assert_none, assert_reads};
 

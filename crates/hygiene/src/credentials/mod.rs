@@ -3,14 +3,15 @@
 //! assigned to a name like a credential. A port of `find_secrets` in the reference.
 //!
 //! Every format is syntactic and built for precision; a credential in none of them is not found.
-//! Patterns are compiled once from the generated classes of [`crate::text`]; a lookbehind is a
+//! Patterns are compiled once from the generated classes of [`crate::unicode`]; a lookbehind is a
 //! check in code on the character before a match, and where a long run follows (a URL's
 //! password, a bare value) it is walked in code, so time stays linear and memory flat however
 //! long a token is. A failed check restarts the search one character after the match's start,
 //! as the reference's engine would try the next position.
 use regex::{Captures, Match, Regex};
 
-use crate::text::{char_at, char_before, is_py_space};
+use crate::text::{char_at, char_before};
+use crate::unicode::{UnicodeVersion, is_py_space};
 
 mod assign;
 mod shapes;
@@ -21,9 +22,9 @@ mod url;
 /// A span that starts before the one before it ends is merged into it; spans that only touch
 /// stay apart.
 #[must_use]
-pub fn find_secrets(text: &str) -> Vec<(usize, usize)> {
-    let mut spans = shapes::shape_spans(text);
-    spans.extend(assign::assignment_spans(text));
+pub fn find_secrets(text: &str, version: UnicodeVersion) -> Vec<(usize, usize)> {
+    let mut spans = shapes::shape_spans(text, version);
+    spans.extend(assign::assignment_spans(text, version));
     spans.sort_unstable();
     let mut merged: Vec<(usize, usize)> = Vec::new();
     for (start, end) in spans {
@@ -38,8 +39,8 @@ pub fn find_secrets(text: &str) -> Vec<(usize, usize)> {
 /// Whether a value assigned to `name` is a credential: any value under an unambiguous name, and
 /// under an ambiguous one only a value that is a credential on its own. The value is never empty
 /// here (a quoted one has a character at least, a bare one six).
-fn is_credential(name: &str, value: &str) -> bool {
-    !is_ambiguous(name) || looks_like_credential(value)
+fn is_credential(name: &str, value: &str, version: UnicodeVersion) -> bool {
+    !is_ambiguous(name) || looks_like_credential(value, version)
 }
 
 /// `token`, `authorization`, `auth` and `key`, read as Python's `str.lower()` reads them: the
@@ -60,8 +61,8 @@ fn is_ambiguous(name: &str) -> bool {
 }
 
 /// A value that is a credential on its own, once a name has vouched for it.
-fn looks_like_credential(value: &str) -> bool {
-    !shapes::shape_spans(value).is_empty()
+fn looks_like_credential(value: &str, version: UnicodeVersion) -> bool {
+    !shapes::shape_spans(value, version).is_empty()
         || shapes::has_vouched_key(value)
         || shapes::is_high_entropy(value)
 }
@@ -132,8 +133,8 @@ fn for_each_match<'t>(
 
 /// Where a value ends: whitespace, a quote of either kind, a backtick, a comma, a semicolon or an
 /// ampersand.
-fn is_value_stop(c: char) -> bool {
-    is_py_space(c) || "\"'`,;&".contains(c)
+fn is_value_stop(c: char, version: UnicodeVersion) -> bool {
+    is_py_space(version, c) || "\"'`,;&".contains(c)
 }
 
 /// `(?<![A-Za-z0-9])` or a camelCase hump: the character before a name is not an ASCII letter
