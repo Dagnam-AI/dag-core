@@ -23,19 +23,15 @@ PyPI takes no version back, so every step before the last is there to stop a bad
   not registered, a pending publisher does not reserve it, and the first publish creates the
   project. Cut `0.1.0` soon after registering; a squatter who takes the name first makes the
   upload fail (closed), and the release waits for a different name.
-- **Environments restricted to tags.** Both environments must deploy only from tags `core/v*`, so
-  that a branch with a copy of the workflow cannot use them. `pypi` also requires a reviewer.
-  With `REVIEWER_ID` the numeric id of that user (`gh api users/<login> --jq .id`):
+- **Environments restricted to tags.** Both environments (`pypi`, `testpypi`) deploy only from tags
+  `core/v*`, so that a branch with a copy of the workflow cannot use them. Neither has a required
+  reviewer: the tag is the release act and the maintainer who pushes it is the approval.
 
   ```sh
-  gh api -X PUT repos/Dagnam-AI/dag-core/environments/pypi --input - <<JSON
-  {"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true},
-   "reviewers": [{"type": "User", "id": $REVIEWER_ID}]}
-  JSON
-  gh api -X PUT repos/Dagnam-AI/dag-core/environments/testpypi --input - <<'JSON'
+  for env in pypi testpypi; do
+    gh api -X PUT repos/Dagnam-AI/dag-core/environments/$env --input - <<'JSON'
   {"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}
   JSON
-  for env in pypi testpypi; do
     gh api -X POST "repos/Dagnam-AI/dag-core/environments/$env/deployment-branch-policies" \
       -f name='core/v*' -f type=tag
   done
@@ -43,7 +39,7 @@ PyPI takes no version back, so every step before the last is there to stop a bad
 
   Check: `gh api repos/Dagnam-AI/dag-core/environments/pypi/deployment-branch-policies` lists one
   policy of type `tag`.
-- **A tag ruleset** (Settings, Rules) that lets only maintainers create, move or delete `core/v*`.
+- **A tag ruleset** named `release tags` on `refs/tags/core/v*` with the rules `deletion`, `non_fast_forward` and `update`, so a published tag can never be moved or removed.
 
 ## Steps
 
@@ -61,14 +57,14 @@ PyPI takes no version back, so every step before the last is there to stop a bad
    once CI is green.
 4. Tag the merged commit and push the tag:
    `git tag -a core/vX.Y.Z <sha> -m "dagnam-core X.Y.Z" && git push origin core/vX.Y.Z`.
-5. Approve the `pypi` environment when the run reaches it.
+5. The `pypi` job runs on its own once the TestPyPI smoke test passes; watch it.
 
 ## When a run fails
 
 - **Before `publish-testpypi` ran**, nothing was published. A transient cause (CI still running,
   a runner or network flake) is fixed by re-running the failed jobs. If the cause is a defect in
-  the code or the workflow, a re-run uses the same tagged files and fails the same way: delete the
-  tag (the ruleset is the maintainers'), fix on `main`, rehearse again and re-tag, as no file went
+  the code or the workflow, a re-run uses the same tagged files and fails the same way: switch the
+  `release tags` ruleset to disabled, delete the tag, switch it back, fix on `main`, rehearse again and re-tag, as no file went
   to any index.
 - **After files went to TestPyPI or PyPI**, do not move the tag. TestPyPI and PyPI skip files
   that are already there, so re-running a failed publish or smoke job finishes the upload (the
